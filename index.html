@@ -553,35 +553,25 @@
   }
 
   /* ================= 給与明細PDFの読み込み ================= */
-  // PDFの座標情報から行を組み立て（同じ行＝y座標が近いもの）、x座標順に並べてトークン化する
+  // PDFの座標情報から行を組み立て（同じ行＝y座標が近いもの）、x座標順に並べて連結した「行テキスト」にする。
+  // トークンの区切り方（文字単位／単語単位）はPDF生成元やブラウザのpdf.js実装によってまちまちなので、
+  // 区切りには依存せず、行全体を連結してからラベル文字列をindexOfで探す方式にして読み取り精度を上げている。
   function extractPdfRows(items){
     var rows = [];
     items.forEach(function(it){
       var x = it.transform[4], y = it.transform[5];
       var row = rows.filter(function(r){ return Math.abs(r.y - y) < 3; })[0];
       if (!row) { row = { y: y, items: [] }; rows.push(row); }
-      row.items.push({ x: x, w: it.width || (it.str.length * 5), str: it.str });
+      row.items.push({ x: x, str: it.str });
     });
     rows.sort(function(a,b){ return b.y - a.y; });
     return rows.map(function(row){
       row.items.sort(function(a,b){ return a.x - b.x; });
-      var tokens = [];
-      var prevEndX = null;
-      row.items.forEach(function(it){
-        if (prevEndX !== null && (it.x - prevEndX) > 4) {
-          tokens.push(it.str);
-        } else if (tokens.length) {
-          tokens[tokens.length-1] += it.str;
-        } else {
-          tokens.push(it.str);
-        }
-        prevEndX = it.x + it.w;
-      });
-      return tokens;
+      return row.items.map(function(it){ return it.str; }).join('');
     });
   }
 
-  var PAYSLIP_NUM_RE = /^[\d,，]+$/;
+  var PAYSLIP_NUM_RE = /^[\d,，]+/;
   function payslipToNum(s){ return parseInt(String(s).replace(/[,，]/g,''), 10); }
 
   // まいばすけっと（コンビニ勤怠システム）形式の給与明細レイアウトに合わせたラベル抽出
@@ -596,34 +586,39 @@
   ];
   var PAYSLIP_TEXT_LABELS = ['所属','振込口座'];
 
+  function payslipExtractNumberAfter(rowText, label){
+    var idx = rowText.indexOf(label);
+    if (idx < 0) return null;
+    var rest = rowText.slice(idx + label.length);
+    var m = rest.match(PAYSLIP_NUM_RE);
+    if (!m) return null;
+    return payslipToNum(m[0]);
+  }
+
   function parsePayslipRows(rows){
     var result = { amounts: {}, meta: {} };
-    rows.forEach(function(tokens){
-      if (tokens[0] && /^\d{4}年\d{1,2}月度$/.test(tokens[0])) {
-        result.meta.yearMonth = tokens[0];
-      }
-      var wsIdx = tokens.indexOf('就業状況');
-      if (wsIdx >= 0 && tokens[wsIdx+1] && tokens[wsIdx+3]) {
-        result.meta.period = tokens[wsIdx+1] + ' - ' + tokens[wsIdx+3];
-      }
-      for (var i = 0; i < tokens.length; i++){
-        var label = tokens[i], next = tokens[i+1];
-        if (PAYSLIP_AMOUNT_LABELS.indexOf(label) >= 0 && next && PAYSLIP_NUM_RE.test(next)) {
-          result.amounts[label] = payslipToNum(next);
-        }
-        if (PAYSLIP_TEXT_LABELS.indexOf(label) >= 0 && next && !PAYSLIP_NUM_RE.test(next)) {
-          if (label === '所属') result.meta.company = next;
-          if (label === '振込口座') result.meta.bankAccount = next;
-        }
-        // ラベルと値の間隔が狭く同一トークンに結合されているケースへの対応
-        PAYSLIP_TEXT_LABELS.forEach(function(tl){
-          if (label.indexOf(tl) === 0 && label.length > tl.length) {
-            var val = label.slice(tl.length);
-            if (tl === '所属' && !result.meta.company) result.meta.company = val;
-            if (tl === '振込口座' && !result.meta.bankAccount) result.meta.bankAccount = val;
-          }
-        });
-      }
+    rows.forEach(function(rowText){
+      var ymMatch = rowText.match(/(\d{4}年\d{1,2}月度)/);
+      if (ymMatch && !result.meta.yearMonth) result.meta.yearMonth = ymMatch[1];
+
+      var periodMatch = rowText.match(/就業状況.*?(\d{1,2}\/\d{1,2})\s*-\s*(\d{1,2}\/\d{1,2})/);
+      if (periodMatch) result.meta.period = periodMatch[1] + ' - ' + periodMatch[2];
+
+      PAYSLIP_AMOUNT_LABELS.forEach(function(label){
+        var v = payslipExtractNumberAfter(rowText, label);
+        if (v != null) result.amounts[label] = v;
+      });
+
+      PAYSLIP_TEXT_LABELS.forEach(function(label){
+        var idx = rowText.indexOf(label);
+        if (idx < 0) return;
+        var rest = rowText.slice(idx + label.length);
+        var cut = rest.search(/[\s　]/);
+        var val = (cut >= 0 ? rest.slice(0, cut) : rest).trim();
+        if (!val) return;
+        if (label === '所属' && !result.meta.company) result.meta.company = val;
+        if (label === '振込口座' && !result.meta.bankAccount) result.meta.bankAccount = val;
+      });
     });
     return result;
   }
