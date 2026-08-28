@@ -372,13 +372,13 @@
     html += '<div class="nav">' +
       navBtn('review','審査キュー') + navBtn('income','収入') + navBtn('dashboard','予算ダッシュボード') +
       '<div class="spacer"></div>' +
-      '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>' +
-      '<button class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>' +
-      '<button class="btn-ghost-sm" id="btnExport">バックアップを保存</button>' +
-      '<button class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>' +
       (ui.view === 'income'
         ? '<button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
-        : '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>') +
+        : '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>' +
+          '<button class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>' +
+          '<button class="btn-ghost-sm" id="btnExport">バックアップを保存</button>' +
+          '<button class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>' +
+          '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>') +
       '</div>';
 
     html += ui.view === 'review' ? renderReview(c) : (ui.view === 'income' ? renderIncome() : renderDashboard());
@@ -529,16 +529,15 @@
   }
 
   /* ================= salary tracker import ================= */
+  /* シンプル化: 給与サイクルの締め日・支払日は再現せず、
+     「その月に発生した給与（時給計算分の交通費こみ）」を月ごとに1件の収入としてまとめるだけにする。 */
   function importSalaryTracker(data){
     var jobs = data.jobs || [];
     var shifts = data.shifts || [];
     var actualPayments = data.actualPayments || [];
-    var cycleCorrections = data.cycleCorrections || {};
     var holidays = data.holidays || {};
 
-    function pad2(n){ return n<10 ? '0'+n : ''+n; }
     function parseYMD(s){ var p=s.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]); }
-    function toKey(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
     function isSunday(d){ return d.getDay()===0; }
     function isHoliday(k){ return !!holidays[k]; }
     function dayType(k){ var d=parseYMD(k); return (isSunday(d)||isHoliday(k)) ? 'holiday' : 'weekday'; }
@@ -575,81 +574,39 @@
         var avgRate = totalPay/totalHours;
         totalPay -= avgRate*breakHours; totalHours -= breakHours;
       }
-      return { pay: Math.round(totalPay) };
-    }
-    function dayOfMonthClamped(y,mIdx,day){
-      if (day===0) return new Date(y,mIdx+1,0);
-      var dim = new Date(y,mIdx+1,0).getDate();
-      return new Date(y,mIdx,Math.min(day,dim));
-    }
-    function cycleKeyForDate(d,job){
-      var y=d.getFullYear(), m=d.getMonth();
-      var cutoff = dayOfMonthClamped(y,m,job.cutoffDay);
-      if (d<=cutoff) return y+'-'+pad2(m+1);
-      var next = new Date(y,m+1,1);
-      return next.getFullYear()+'-'+pad2(next.getMonth()+1);
-    }
-    function cycleRange(key,job){
-      var p=key.split('-').map(Number); var y=p[0], mIdx=p[1]-1;
-      var end = dayOfMonthClamped(y,mIdx,job.cutoffDay);
-      var prev = new Date(y,mIdx-1,1);
-      var prevCutoff = dayOfMonthClamped(prev.getFullYear(),prev.getMonth(),job.cutoffDay);
-      var start = new Date(prevCutoff.getFullYear(),prevCutoff.getMonth(),prevCutoff.getDate()+1);
-      return {start:start, end:end};
-    }
-    function cyclePaymentDate(key,job){
-      var p=key.split('-').map(Number); var y=p[0], mIdx=p[1]-1;
-      var payMonth = new Date(y, mIdx + (job.paymentMonthsAfter||0), 1);
-      var payDate = dayOfMonthClamped(payMonth.getFullYear(), payMonth.getMonth(), job.paymentDay);
-      var adj = job.holidayAdjustment || 'before';
-      if (adj !== 'none'){
-        var dir = adj==='after' ? 1 : -1;
-        while (isSunday(payDate) || payDate.getDay()===6 || isHoliday(toKey(payDate))){
-          payDate = new Date(payDate.getFullYear(), payDate.getMonth(), payDate.getDate()+dir);
-        }
-      }
-      return payDate;
+      return Math.round(totalPay);
     }
 
-    var now = new Date();
     var results = [];
 
     jobs.forEach(function(job){
       var jobShifts = shifts.filter(function(s){ return s.jobId===job.id; });
-      var keys = {};
-      jobShifts.forEach(function(s){ keys[cycleKeyForDate(parseYMD(s.date), job)] = true; });
-      Object.keys(keys).forEach(function(key){
-        var range = cycleRange(key, job);
-        var inCycle = jobShifts.filter(function(s){
-          var d = parseYMD(s.date);
-          return d>=range.start && d<=range.end;
-        });
-        if (!inCycle.length) return;
-        var workDays = Array.from(new Set(inCycle.map(function(s){return s.date;}))).length;
-        var wage = inCycle.reduce(function(sum,s){ return sum + calcShiftWage(s, job).pay; }, 0);
+      var byMonth = {};
+      jobShifts.forEach(function(s){
+        var m = s.date.slice(0,7);
+        if (!byMonth[m]) byMonth[m] = [];
+        byMonth[m].push(s);
+      });
+      Object.keys(byMonth).forEach(function(month){
+        var group = byMonth[month];
+        var workDays = Array.from(new Set(group.map(function(s){ return s.date; }))).length;
+        var wage = group.reduce(function(sum,s){ return sum + calcShiftWage(s, job); }, 0);
         var usePass = workDays >= job.passThreshold;
         var commute = usePass ? job.passFare : workDays * job.tripFare;
-        var corr = (cycleCorrections[job.id] && cycleCorrections[job.id][key]) || {};
-        var effWage = (corr.wage!=null && corr.wage!=='') ? Number(corr.wage) : wage;
-        var effCommute = (corr.commute!=null && corr.commute!=='') ? Number(corr.commute) : commute;
-        var payDate = cyclePaymentDate(key, job);
-        if (payDate > now) return;
         results.push({
-          date: toKey(payDate),
-          amount: effWage + effCommute,
+          date: month + '-01',
+          amount: wage + commute,
           source: job.name,
-          memo: 'シフト計算（' + key + ' 締め分）',
-          sourceKey: 'salary:' + job.id + ':' + key
+          memo: '給与トラッカーより（' + month + ' 分・交通費こみ）',
+          sourceKey: 'salary:' + job.id + ':' + month
         });
       });
     });
 
     actualPayments.forEach(function(p){
       var job = jobs.filter(function(j){ return j.id===p.jobId; })[0];
-      var p2 = p.month.split('-').map(Number);
-      var monthEnd = new Date(p2[0], p2[1], 0);
       results.push({
-        date: toKey(monthEnd),
+        date: p.month + '-01',
         amount: (p.taxable||0) + (p.commute||0),
         source: (job ? job.name : '給与') + '（手入力実績）',
         memo: p.note || '',
