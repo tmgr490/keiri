@@ -388,8 +388,7 @@
         ? '<button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
         : ui.view === 'dashboard' || ui.view === 'settings'
         ? ''
-        : '<button class="btn-ghost-sm" id="btnKakeiboImport">家計簿トラッカーを読み込む</button>' +
-          '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>') +
+        : '<button class="btn-primary" id="btnKakeiboImport">家計簿トラッカーを読み込む</button>') +
       '</div>';
 
     html += '<div class="board">' +
@@ -428,7 +427,7 @@
     }
 
     if (!list.length) {
-      out += '<div class="empty">' + (STATE.expenses.length ? 'このステータスの記録はありません。' : 'まだ記録がありません。「＋ 新規支出を記録」から追加してください。') + '</div>';
+      out += '<div class="empty">' + (STATE.expenses.length ? 'このステータスの記録はありません。' : 'まだ記録がありません。「家計簿トラッカーを読み込む」からデータを取り込んでください。') + '</div>';
     } else {
       out += '<div class="list">' + list.map(cardHTML).join('') + '</div>';
     }
