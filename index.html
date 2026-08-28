@@ -303,6 +303,7 @@
   /* ================= state ================= */
   var STATE = { expenses: [], budgets: {} };
   var lastSavedAt = null;
+  var saveFailed = false;
   try {
     var raw = localStorage.getItem(STORAGE_KEY);
     if (raw) STATE = JSON.parse(raw);
@@ -390,6 +391,7 @@
   }
 
   function saveBadgeText(){
+    if (saveFailed) return '<span style="color:var(--rejected);font-weight:700">⚠ 保存失敗（変更が消える可能性あり）</span>';
     return lastSavedAt ? ('最終保存 <b>' + fmtTime(lastSavedAt) + '</b>') : 'まだ保存されていません';
   }
 
@@ -1039,17 +1041,30 @@
   }
 
   /* ================= modal: categories & budgets ================= */
-  function catRowsHTML(){
+  function catRowsHTML(draft){
+    draft = draft || {};
     return STATE.categories.map(function(cat){
+      var val = Object.prototype.hasOwnProperty.call(draft, cat) ? draft[cat] : (STATE.budgets[cat]||'');
       return '<div class="budget-form-row" data-cat-row="' + esc(cat) + '"><span class="cat">' + esc(cat) + '</span>' +
-        '<input type="number" min="0" step="1" data-budget-cat="' + esc(cat) + '" value="' + (STATE.budgets[cat]||'') + '" placeholder="0">' +
+        '<input type="number" min="0" step="1" data-budget-cat="' + esc(cat) + '" value="' + val + '" placeholder="0">' +
         '<span class="yen">円 / 月</span>' +
         '<button type="button" class="cat-del" data-cat-del="' + esc(cat) + '" title="この費目を削除">×</button></div>';
     }).join('');
   }
 
+  // 費目の追加・削除で一覧を再描画する際、まだ保存していない入力中の予算額を保持する
+  function collectDraftBudgets(){
+    var draft = {};
+    document.querySelectorAll('[data-budget-cat]').forEach(function(inp){
+      var cat = inp.getAttribute('data-budget-cat');
+      if (inp.value !== '') draft[cat] = inp.value;
+    });
+    return draft;
+  }
+
   function refreshCatRows(){
-    document.getElementById('catRows').innerHTML = catRowsHTML();
+    var draft = collectDraftBudgets();
+    document.getElementById('catRows').innerHTML = catRowsHTML(draft);
   }
 
   function addCategory(){
@@ -1339,10 +1354,15 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
       lastSavedAt = new Date();
+      saveFailed = false;
       var badge = document.getElementById('saveBadge');
       if (badge) badge.innerHTML = saveBadgeText();
     } catch(e){
-      toast("保存容量の上限に達した可能性があります。バックアップを保存してください");
+      saveFailed = true;
+      var badge2 = document.getElementById('saveBadge');
+      if (badge2) badge2.innerHTML = saveBadgeText();
+      toast("保存に失敗しました。今の変更は保存されていません。バックアップを保存してください");
+      window.alert("保存容量の上限に達したため、直前の変更が保存されていません。「設定」タブの「バックアップを保存」で今のデータをすぐに書き出してください。領収書画像を減らすと保存できる可能性があります。");
     }
   }
 
