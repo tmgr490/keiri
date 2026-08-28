@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>経費審査デスク</title>
+<title>支出審査デスク</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap">
 <style>
   :root{
@@ -164,6 +164,13 @@
   .detail-title{font-family:"Shippori Mincho",serif;font-size:19px;font-weight:700;}
   .detail-sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
   .detail-amount{font-size:26px;font-weight:900;letter-spacing:-.01em;}
+  .budget-ctx{
+    background:var(--paper-raised);border:1px solid var(--line);border-radius:8px;padding:10px 14px;
+    font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;
+  }
+  .budget-ctx b{color:var(--ink);}
+  .budget-ctx .mini-track{background:var(--line);border-radius:4px;height:6px;margin-top:6px;overflow:hidden;}
+  .budget-ctx .mini-fill{height:100%;border-radius:4px;}
   .memo{background:var(--paper-raised);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13.5px;line-height:1.6;margin-bottom:16px;white-space:pre-wrap;}
   .receipt-box{margin-bottom:18px;}
   .receipt-box img{max-width:100%;max-height:280px;border-radius:8px;border:1px solid var(--line);cursor:zoom-in;display:block;}
@@ -188,6 +195,9 @@
   .placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:var(--ink-faint);font-size:13.5px;min-height:60vh;}
 
   /* ---------- dashboard ---------- */
+  .dash-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+  .dash-toolbar label{font-size:12px;color:var(--ink-soft);font-weight:700;}
+  .dash-toolbar select{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px;background:var(--surface);color:var(--ink);}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
   @media (max-width: 860px){ .kpis{grid-template-columns:repeat(2,1fr);} }
   .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);}
@@ -195,15 +205,19 @@
   .kpi .val{font-size:24px;font-weight:900;}
   .kpi .sub{font-size:11.5px;color:var(--ink-soft);margin-top:4px;}
   .kpi.warn .val{color:var(--returned);}
+  .kpi.bad .val{color:var(--rejected);}
   .panels{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
   @media (max-width: 860px){ .panels{grid-template-columns:1fr;} }
   .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;}
   .panel h3{font-family:"Shippori Mincho",serif;font-size:15.5px;margin:0 0 14px;font-weight:700;}
-  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
-  .bar-label{width:74px;flex:none;font-size:12px;color:var(--ink-soft);text-align:right;}
-  .bar-track{flex:1;background:var(--paper-raised);border-radius:4px;height:16px;position:relative;overflow:hidden;}
-  .bar-fill{height:100%;border-radius:4px;background:var(--brand);}
-  .bar-val{width:88px;flex:none;font-size:12px;font-weight:700;text-align:right;}
+  .budget-row{margin-bottom:14px;}
+  .budget-row-top{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;}
+  .budget-row-top .cat{font-weight:700;color:var(--ink);}
+  .budget-row-top .amt{color:var(--ink-soft);}
+  .budget-row-top .amt b{color:var(--ink);font-weight:700;}
+  .budget-track{background:var(--paper-raised);border-radius:4px;height:14px;position:relative;overflow:hidden;}
+  .budget-fill{height:100%;border-radius:4px;}
+  .budget-pct{font-size:11px;color:var(--ink-faint);margin-top:3px;}
   .status-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:13px;}
   .status-row .dot{width:9px;height:9px;border-radius:50%;flex:none;}
   .status-row .cnt{margin-left:auto;font-weight:800;}
@@ -219,7 +233,8 @@
     background:var(--surface);border-radius:14px;border:1px solid var(--line);max-width:560px;width:100%;
     max-height:88vh;overflow-y:auto;padding:24px 26px;box-shadow:0 30px 60px -20px rgba(0,0,0,.4);
   }
-  .modal h2{font-family:"Shippori Mincho",serif;font-size:19px;margin:0 0 16px;}
+  .modal h2{font-family:"Shippori Mincho",serif;font-size:19px;margin:0 0 6px;}
+  .modal .modal-desc{font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;}
   .form-row{margin-bottom:13px;}
   .form-row label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:4px;}
   .form-row input[type=text],.form-row input[type=date],.form-row input[type=number],.form-row select,.form-row textarea{
@@ -230,6 +245,10 @@
   .file-drop img{max-height:120px;border-radius:6px;margin-top:8px;}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
   .btn-ghost{border:1px solid var(--line);background:transparent;color:var(--ink-soft);padding:9px 16px;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;}
+  .budget-form-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .budget-form-row .cat{width:120px;flex:none;font-size:13px;font-weight:700;}
+  .budget-form-row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13.5px;background:var(--paper-raised);color:var(--ink);}
+  .budget-form-row .yen{color:var(--ink-faint);font-size:12.5px;}
 
   .lightbox{position:fixed;inset:0;background:rgba(10,10,8,.86);display:none;align-items:center;justify-content:center;z-index:60;cursor:zoom-out;padding:30px;}
   .lightbox.show{display:flex;}
@@ -261,24 +280,25 @@
   var STORAGE_KEY = "keihiShinsaState.v1";
 
   /* ================= constants ================= */
-  var CATEGORIES = ["交通費","会議費","交際費","消耗品費","通信費","宿泊費","書籍・研修費","その他"];
+  var CATEGORIES = ["食費","交際費","娯楽費","交通費","日用品","通信費","書籍・学用品","衣服・美容","医療費","その他"];
   var STATUS = {
-    pending:  {label:"未処理", cls:"st-pending"},
+    pending:  {label:"未審査", cls:"st-pending"},
     approved: {label:"承認",   cls:"st-approved"},
-    returned: {label:"差戻",   cls:"st-returned"},
+    returned: {label:"要注意", cls:"st-returned"},
     rejected: {label:"却下",   cls:"st-rejected"}
   };
 
   /* ================= state ================= */
-  var STATE = { expenses: [] };
+  var STATE = { expenses: [], budgets: {} };
   var lastSavedAt = null;
   try {
     var raw = localStorage.getItem(STORAGE_KEY);
     if (raw) STATE = JSON.parse(raw);
-  } catch(e){ STATE = { expenses: [] }; }
+  } catch(e){ STATE = { expenses: [], budgets: {} }; }
   if (!STATE.expenses) STATE.expenses = [];
+  if (!STATE.budgets) STATE.budgets = {};
 
-  var ui = { view: "review", filter: "all", selectedId: null };
+  var ui = { view: "review", filter: "all", selectedId: null, dashMonth: new Date().toISOString().slice(0,7) };
   var saveTimer = null;
 
   /* ================= helpers ================= */
@@ -288,10 +308,16 @@
   function fmtDate(d){ if(!d) return "—"; var p=d.split("-"); return p.length===3 ? p[0]+"/"+p[1]+"/"+p[2] : d; }
   function fmtTime(d){ if(!d) return ""; var h=String(d.getHours()).padStart(2,"0"),m=String(d.getMinutes()).padStart(2,"0"),s=String(d.getSeconds()).padStart(2,"0"); return h+":"+m+":"+s; }
   function monthKey(d){ return d ? d.slice(0,7) : "不明"; }
+  function monthLabel(m){ var p=m.split("-"); return p.length===2 ? p[0]+"年"+parseInt(p[1],10)+"月" : m; }
   function toast(msg){
     var t = document.getElementById("toast");
     t.textContent = msg; t.classList.add("show");
     clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove("show"); }, 2600);
+  }
+  function pctColorVar(pct){
+    if (pct >= 100) return "rejected";
+    if (pct >= 80) return "returned";
+    return "brand";
   }
 
   function byId(id){ return STATE.expenses.find(function(e){ return e.id===id; }); }
@@ -301,6 +327,17 @@
     STATE.expenses.forEach(function(e){ c[e.status] = (c[e.status]||0)+1; });
     return c;
   }
+  function spentInMonth(cat, month){
+    return STATE.expenses.filter(function(e){ return e.category===cat && monthKey(e.date)===month; })
+      .reduce(function(s,e){ return s+(e.amount||0); },0);
+  }
+  function availableMonths(){
+    var set = {};
+    STATE.expenses.forEach(function(e){ set[monthKey(e.date)] = true; });
+    set[ui.dashMonth] = true;
+    set[new Date().toISOString().slice(0,7)] = true;
+    return Object.keys(set).sort().reverse();
+  }
 
   /* ================= rendering ================= */
   function renderApp(){
@@ -308,17 +345,19 @@
     var html = '';
     html += '<div class="titlebar">' +
       '<div class="hanko">済</div>' +
-      '<div><h1>経費審査デスク</h1><div class="sub">Keihi Shinsa Desk — 経費申請の確認・承認ワークフロー（このPC内に保存）</div></div>' +
+      '<div><h1>支出審査デスク</h1><div class="sub">自分の支出を、月の予算と照らして自分で審査する管理ツール（このPC内に保存）</div></div>' +
       '<div class="savebadge" id="saveBadge">' + saveBadgeText() + '</div>' +
       '<div class="dots"><span class="dot-a"></span><span class="dot-b"></span><span class="dot-c"></span></div>' +
       '</div>';
 
     html += '<div class="nav">' +
-      navBtn('review','審査キュー') + navBtn('dashboard','月次ダッシュボード') +
+      navBtn('review','審査キュー') + navBtn('dashboard','予算ダッシュボード') +
       '<div class="spacer"></div>' +
+      '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>' +
+      '<button class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>' +
       '<button class="btn-ghost-sm" id="btnExport">バックアップを保存</button>' +
       '<button class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>' +
-      '<button class="btn-primary" id="btnNew">＋ 新規申請を登録</button>' +
+      '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>' +
       '</div>';
 
     html += ui.view === 'review' ? renderReview(c) : renderDashboard();
@@ -336,7 +375,7 @@
 
   function renderReview(c){
     var list = sorted().filter(function(e){ return ui.filter==='all' ? true : e.status===ui.filter; });
-    var chips = [['all','すべて',c.all],['pending','未処理',c.pending],['returned','差戻',c.returned],['rejected','却下',c.rejected],['approved','承認',c.approved]];
+    var chips = [['all','すべて',c.all],['pending','未審査',c.pending],['returned','要注意',c.returned],['rejected','却下',c.rejected],['approved','承認',c.approved]];
 
     var out = '<div class="review"><div>';
     out += '<div class="filters">' + chips.map(function(ch){
@@ -344,12 +383,12 @@
     }).join('') + '</div>';
 
     if (!list.length) {
-      out += '<div class="empty">' + (STATE.expenses.length ? 'このステータスの申請はありません。' : 'まだ申請がありません。「＋ 新規申請を登録」から追加してください。') + '</div>';
+      out += '<div class="empty">' + (STATE.expenses.length ? 'このステータスの記録はありません。' : 'まだ記録がありません。「＋ 新規支出を記録」から追加してください。') + '</div>';
     } else {
       out += '<div class="list">' + list.map(cardHTML).join('') + '</div>';
     }
     out += '</div>';
-    out += '<div>' + (ui.selectedId && byId(ui.selectedId) ? detailHTML(byId(ui.selectedId)) : '<div class="detail"><div class="placeholder">左の一覧から申請を選択してください</div></div>') + '</div>';
+    out += '<div>' + (ui.selectedId && byId(ui.selectedId) ? detailHTML(byId(ui.selectedId)) : '<div class="detail"><div class="placeholder">左の一覧から支出を選択してください</div></div>') + '</div>';
     out += '</div>';
     return out;
   }
@@ -357,8 +396,8 @@
   function cardHTML(e){
     var st = STATUS[e.status];
     return '<div class="card' + (ui.selectedId===e.id?' selected':'') + '" data-select="' + e.id + '">' +
-      '<div class="card-top"><div><div class="card-name">' + esc(e.submitter) + '</div>' +
-      '<div class="card-meta">' + fmtDate(e.date) + ' ・ ' + esc(e.department) + ' ・ ' + esc(e.category) + '</div></div>' +
+      '<div class="card-top"><div><div class="card-name">' + esc(e.category) + '</div>' +
+      '<div class="card-meta">' + fmtDate(e.date) + (e.memo ? ' ・ ' + esc(e.memo.slice(0,24)) + (e.memo.length>24?'…':'') : '') + '</div></div>' +
       '<div class="card-amount">' + yen(e.amount) + '</div></div>' +
       '<div class="card-bottom"><span class="pill ' + st.cls + '">' + st.label + '</span>' +
       (e.receipt ? '' : '<span class="flag">領収書なし</span>') + '</div></div>';
@@ -366,10 +405,22 @@
 
   function detailHTML(e){
     var st = STATUS[e.status];
+    var month = monthKey(e.date);
+    var budget = STATE.budgets[e.category] || 0;
+    var spent = spentInMonth(e.category, month);
+    var pct = budget ? Math.min(999, Math.round(spent/budget*100)) : (spent>0 ? 100 : 0);
+    var colorVar = pctColorVar(pct);
+
     var out = '<div class="detail">';
-    out += '<div class="detail-head"><div><div class="detail-title">' + esc(e.submitter) + ' さんの申請</div>' +
-      '<div class="detail-sub">' + fmtDate(e.date) + ' ・ ' + esc(e.department) + ' ・ ' + esc(e.category) + ' ・ <span class="pill ' + st.cls + '">' + st.label + '</span></div></div>' +
+    out += '<div class="detail-head"><div><div class="detail-title">' + esc(e.category) + '</div>' +
+      '<div class="detail-sub">' + fmtDate(e.date) + ' ・ <span class="pill ' + st.cls + '">' + st.label + '</span></div></div>' +
       '<div class="detail-amount">' + yen(e.amount) + '</div></div>';
+
+    out += '<div class="budget-ctx">' +
+      esc(e.category) + '（' + monthLabel(month) + '）の予算消化：<b>' + yen(spent) + '</b> / ' + (budget ? yen(budget) : '予算未設定') +
+      (budget ? '（' + pct + '%）' : '') +
+      '<div class="mini-track"><div class="mini-fill" style="width:' + Math.min(pct,100) + '%;background:var(--' + colorVar + ')"></div></div>' +
+      '</div>';
 
     out += '<div class="receipt-box">' + (e.receipt ?
       '<img src="' + e.receipt + '" data-zoom="1" alt="領収書">' :
@@ -381,12 +432,12 @@
       out += '<div class="history">前回の審査コメント（' + esc(st.label) + (e.reviewedAt ? '・' + fmtDate(e.reviewedAt) : '') + '）：' + esc(e.reviewComment) + '</div>';
     }
 
-    out += '<div class="actions"><label for="reviewNote">審査コメント（差戻・却下時は入力必須）</label>' +
-      '<textarea id="reviewNote" placeholder="例）宛名がないため再提出をお願いします"></textarea>' +
+    out += '<div class="actions"><label for="reviewNote">審査コメント（要注意・却下時は入力必須）</label>' +
+      '<textarea id="reviewNote" placeholder="例）予算オーバーしたので来月は控える"></textarea>' +
       '<div class="act-row">' +
       actBtn('approve','act-approve','承認する') +
-      actBtn('return','act-return','差し戻す') +
-      actBtn('reject','act-reject','却下する') +
+      actBtn('return','act-return','要注意にする') +
+      actBtn('reject','act-reject','却下する（無駄遣い認定）') +
       '</div></div>';
     out += '</div>';
     return out;
@@ -396,89 +447,93 @@
   }
 
   function renderDashboard(){
-    var list = STATE.expenses;
-    if (!list.length) return '<div class="empty">データがまだありません。申請を登録すると、ここに月次集計が表示されます。</div>';
+    var month = ui.dashMonth;
+    var months = availableMonths();
+    var monthExpenses = STATE.expenses.filter(function(e){ return monthKey(e.date)===month; });
 
-    var totalAmt = list.reduce(function(s,e){ return s+(e.amount||0); },0);
-    var approvedAmt = list.filter(function(e){return e.status==='approved';}).reduce(function(s,e){ return s+(e.amount||0); },0);
-    var flagged = list.filter(function(e){ return e.status==='returned' || e.status==='rejected'; }).length;
-    var flagRate = list.length ? Math.round(flagged/list.length*100) : 0;
+    var budgetTotal = CATEGORIES.reduce(function(s,cat){ return s + (STATE.budgets[cat]||0); }, 0);
+    var spentTotal = monthExpenses.reduce(function(s,e){ return s+(e.amount||0); },0);
+    var remaining = budgetTotal - spentTotal;
+    var flaggedCount = monthExpenses.filter(function(e){ return e.status==='returned' || e.status==='rejected'; }).length;
 
-    var byMonth = {};
-    list.forEach(function(e){ var k=monthKey(e.date); byMonth[k]=(byMonth[k]||0)+(e.amount||0); });
-    var months = Object.keys(byMonth).sort();
-    var maxMonth = Math.max.apply(null, months.map(function(m){return byMonth[m];}).concat([1]));
+    var out = '<div class="dash-toolbar"><label for="dashMonthSel">対象月</label><select id="dashMonthSel">' +
+      months.map(function(m){ return '<option value="' + m + '"' + (m===month?' selected':'') + '>' + monthLabel(m) + '</option>'; }).join('') +
+      '</select></div>';
 
-    var byDept = {};
-    list.forEach(function(e){ var k=e.department||'未分類'; byDept[k]=(byDept[k]||0)+(e.amount||0); });
-    var depts = Object.keys(byDept).sort(function(a,b){ return byDept[b]-byDept[a]; });
-    var maxDept = Math.max.apply(null, depts.map(function(d){return byDept[d];}).concat([1]));
-
-    var c = counts();
-
-    var out = '<div class="kpis">' +
-      kpi('総申請件数', c.all + ' 件', '') +
-      kpi('申請総額', yen(totalAmt), '') +
-      kpi('承認済み金額', yen(approvedAmt), c.approved + ' 件承認済み') +
-      kpi('差戻・却下率', flagRate + '%', flagged + ' / ' + c.all + ' 件が要注意', flagRate>=20) +
+    out += '<div class="kpis">' +
+      kpi('今月の予算合計', budgetTotal ? yen(budgetTotal) : '未設定', budgetTotal ? '' : '「予算を設定」から入力してください') +
+      kpi('今月の支出合計', yen(spentTotal), monthExpenses.length + ' 件') +
+      kpi('残り予算', yen(remaining), remaining<0 ? '予算オーバー' : '', remaining<0, remaining<0) +
+      kpi('要注意・却下件数', flaggedCount + ' 件', monthExpenses.length ? Math.round(flaggedCount/monthExpenses.length*100)+'%' : '', flaggedCount>0) +
       '</div>';
 
-    out += '<div class="panels"><div class="panel"><h3>月次申請額の推移</h3>' + barChartSVG(months, byMonth, maxMonth) + '</div>';
+    out += '<div class="panels"><div class="panel"><h3>カテゴリ別 予算消化状況（' + monthLabel(month) + '）</h3>';
+    var anyBudget = false;
+    CATEGORIES.forEach(function(cat){
+      var budget = STATE.budgets[cat] || 0;
+      var spent = spentInMonth(cat, month);
+      if (!budget && !spent) return;
+      anyBudget = true;
+      var pct = budget ? Math.round(spent/budget*100) : (spent>0?100:0);
+      var colorVar = pctColorVar(pct);
+      out += '<div class="budget-row"><div class="budget-row-top"><span class="cat">' + esc(cat) + '</span>' +
+        '<span class="amt"><b>' + yen(spent) + '</b> / ' + (budget ? yen(budget) : '予算未設定') + '</span></div>' +
+        '<div class="budget-track"><div class="budget-fill" style="width:' + Math.min(pct,100) + '%;background:var(--' + colorVar + ')"></div></div>' +
+        '<div class="budget-pct">' + (budget ? pct + '%' : '（この費目の予算は未設定です）') + '</div></div>';
+    });
+    if (!anyBudget) out += '<div class="empty">この月のデータや予算設定がまだありません。「予算を設定」からカテゴリごとの上限を決めましょう。</div>';
+    out += '</div>';
 
-    out += '<div class="panel"><h3>部署別 申請額</h3>';
-    depts.forEach(function(d){
-      var pct = Math.round(byDept[d]/maxDept*100);
-      out += '<div class="bar-row"><div class="bar-label">' + esc(d) + '</div>' +
-        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
-        '<div class="bar-val">' + yen(byDept[d]) + '</div></div>';
-    });
-    out += '<h3 style="margin-top:20px">ステータス内訳</h3>';
+    out += '<div class="panel"><h3>ステータス内訳（' + monthLabel(month) + '）</h3>';
+    var mc = {pending:0,approved:0,returned:0,rejected:0};
+    monthExpenses.forEach(function(e){ mc[e.status] = (mc[e.status]||0)+1; });
     ['pending','approved','returned','rejected'].forEach(function(k){
-      out += '<div class="status-row"><span class="dot" style="background:var(--' + k + ')"></span>' + STATUS[k].label + '<span class="cnt">' + (c[k]||0) + ' 件</span></div>';
+      out += '<div class="status-row"><span class="dot" style="background:var(--' + k + ')"></span>' + STATUS[k].label + '<span class="cnt">' + (mc[k]||0) + ' 件</span></div>';
     });
+    out += '<h3 style="margin-top:20px">月次支出の推移</h3>' + monthlyTrendSVG();
     out += '</div></div>';
     return out;
   }
 
-  function kpi(label,val,sub,warn){
-    return '<div class="kpi' + (warn?' warn':'') + '"><div class="lbl">' + label + '</div><div class="val">' + val + '</div>' + (sub?'<div class="sub">'+sub+'</div>':'') + '</div>';
-  }
-
-  function barChartSVG(months, byMonth, maxMonth){
+  function monthlyTrendSVG(){
+    var byMonth = {};
+    STATE.expenses.forEach(function(e){ var k=monthKey(e.date); byMonth[k]=(byMonth[k]||0)+(e.amount||0); });
+    var months = Object.keys(byMonth).sort();
     if (!months.length) return '<div class="empty">データなし</div>';
-    var w = 560, h = 200, padL = 8, padB = 26, padT = 10;
+    var maxMonth = Math.max.apply(null, months.map(function(m){return byMonth[m];}).concat([1]));
+    var w = 320, h = 140, padL = 6, padB = 22, padT = 8;
     var bw = (w - padL*2) / months.length;
-    var barW = Math.min(38, bw*0.55);
-    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;max-height:220px" role="img" aria-label="月次申請額の棒グラフ">';
+    var barW = Math.min(26, bw*0.55);
+    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;max-height:160px" role="img" aria-label="月次支出の棒グラフ">';
     svg += '<line x1="' + padL + '" y1="' + (h-padB) + '" x2="' + (w-padL) + '" y2="' + (h-padB) + '" stroke="var(--line)" stroke-width="1"/>';
     months.forEach(function(m, i){
       var val = byMonth[m];
       var bh = Math.max(3, (val/maxMonth) * (h-padT-padB));
       var x = padL + i*bw + (bw-barW)/2;
       var y = (h-padB) - bh;
-      svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="4" fill="var(--brand)"><title>' + m + '：' + yen(val) + '</title></rect>';
-      svg += '<text x="' + (x+barW/2).toFixed(1) + '" y="' + (h-padB+16) + '" font-size="10.5" text-anchor="middle">' + m.slice(5) + '月</text>';
+      svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="3" fill="var(--brand)"><title>' + m + '：' + yen(val) + '</title></rect>';
+      svg += '<text x="' + (x+barW/2).toFixed(1) + '" y="' + (h-padB+14) + '" font-size="9.5" text-anchor="middle">' + m.slice(5) + '月</text>';
     });
     svg += '</svg>';
     return svg;
   }
 
+  function kpi(label,val,sub,warn,bad){
+    return '<div class="kpi' + (bad?' bad':(warn?' warn':'')) + '"><div class="lbl">' + label + '</div><div class="val">' + val + '</div>' + (sub?'<div class="sub">'+sub+'</div>':'') + '</div>';
+  }
+
   /* ================= modal: new expense ================= */
   function openNewModal(){
     var today = new Date().toISOString().slice(0,10);
-    var body = '<h2>新規経費申請</h2>' +
-      '<div class="form-row"><label>申請日</label><input type="date" id="f-date" value="' + today + '"></div>' +
+    var body = '<h2>新規支出を記録</h2>' +
       '<div class="form-2col">' +
-      '<div class="form-row"><label>申請者名</label><input type="text" id="f-submitter" placeholder="例）森若沙名子"></div>' +
-      '<div class="form-row"><label>部署</label><input type="text" id="f-department" placeholder="例）営業部"></div>' +
-      '</div>' +
-      '<div class="form-2col">' +
+      '<div class="form-row"><label>日付</label><input type="date" id="f-date" value="' + today + '"></div>' +
       '<div class="form-row"><label>費目</label><select id="f-category">' + CATEGORIES.map(function(c){return '<option>'+c+'</option>';}).join('') + '</select></div>' +
-      '<div class="form-row"><label>金額（円）</label><input type="number" id="f-amount" min="0" step="1" placeholder="0"></div>' +
       '</div>' +
-      '<div class="form-row"><label>メモ・用途</label><textarea id="f-memo" rows="3" placeholder="例）〇〇社との定例打ち合わせ費用"></textarea></div>' +
-      '<div class="form-row"><label>領収書画像</label><div class="file-drop" id="f-dropzone">クリックして画像を選択<div id="f-preview"></div></div><input type="file" id="f-file" accept="image/*" style="display:none"></div>' +
-      '<div class="modal-actions"><button class="btn-ghost" id="f-cancel">キャンセル</button><button class="btn-primary" id="f-submit">登録する</button></div>';
+      '<div class="form-row"><label>金額（円）</label><input type="number" id="f-amount" min="0" step="1" placeholder="0"></div>' +
+      '<div class="form-row"><label>内容・メモ</label><textarea id="f-memo" rows="3" placeholder="例）友人とランチ"></textarea></div>' +
+      '<div class="form-row"><label>領収書・レシート画像</label><div class="file-drop" id="f-dropzone">クリックして画像を選択<div id="f-preview"></div></div><input type="file" id="f-file" accept="image/*" style="display:none"></div>' +
+      '<div class="modal-actions"><button class="btn-ghost" id="f-cancel">キャンセル</button><button class="btn-primary" id="f-submit">記録する</button></div>';
     document.getElementById('modalBody').innerHTML = body;
     document.getElementById('modalOverlay').classList.add('show');
 
@@ -496,15 +551,11 @@
     };
     document.getElementById('f-cancel').onclick = closeModal;
     document.getElementById('f-submit').onclick = function(){
-      var submitter = document.getElementById('f-submitter').value.trim();
       var amount = parseFloat(document.getElementById('f-amount').value);
-      if (!submitter) { toast('申請者名を入力してください'); return; }
       if (!amount || amount<=0) { toast('金額を正しく入力してください'); return; }
       var e = {
         id: uid(),
         date: document.getElementById('f-date').value,
-        submitter: submitter,
-        department: document.getElementById('f-department').value.trim() || '未設定',
         category: document.getElementById('f-category').value,
         amount: amount,
         memo: document.getElementById('f-memo').value.trim(),
@@ -518,9 +569,36 @@
       closeModal();
       ui.selectedId = e.id; ui.filter = 'all'; ui.view='review';
       renderApp();
-      saveState('新規申請を登録しました');
+      saveState('新規支出を記録しました');
     };
   }
+
+  /* ================= modal: budgets ================= */
+  function openBudgetModal(){
+    var body = '<h2>カテゴリ別 月間予算</h2>' +
+      '<div class="modal-desc">費目ごとに毎月の上限金額を設定します。未設定のままにすると、その費目は予算チェックの対象になりません。</div>';
+    CATEGORIES.forEach(function(cat){
+      body += '<div class="budget-form-row"><span class="cat">' + esc(cat) + '</span>' +
+        '<input type="number" min="0" step="1" data-budget-cat="' + esc(cat) + '" value="' + (STATE.budgets[cat]||'') + '" placeholder="0">' +
+        '<span class="yen">円 / 月</span></div>';
+    });
+    body += '<div class="modal-actions"><button class="btn-ghost" id="b-cancel">キャンセル</button><button class="btn-primary" id="b-submit">保存する</button></div>';
+    document.getElementById('modalBody').innerHTML = body;
+    document.getElementById('modalOverlay').classList.add('show');
+    document.getElementById('b-cancel').onclick = closeModal;
+    document.getElementById('b-submit').onclick = function(){
+      document.querySelectorAll('[data-budget-cat]').forEach(function(inp){
+        var cat = inp.getAttribute('data-budget-cat');
+        var val = parseFloat(inp.value);
+        if (val > 0) STATE.budgets[cat] = val;
+        else delete STATE.budgets[cat];
+      });
+      closeModal();
+      renderApp();
+      saveState('予算を更新しました');
+    };
+  }
+
   function closeModal(){ document.getElementById('modalOverlay').classList.remove('show'); document.getElementById('modalBody').innerHTML=''; }
 
   /* ================= actions ================= */
@@ -530,7 +608,7 @@
     var note = (document.getElementById('reviewNote')||{}).value || '';
     note = note.trim();
     if ((action==='return' || action==='reject') && !note) {
-      toast('差し戻し・却下の理由を入力してください'); return;
+      toast('要注意・却下の理由を入力してください'); return;
     }
     e.status = action==='approve' ? 'approved' : action==='return' ? 'returned' : 'rejected';
     e.reviewComment = note;
@@ -540,22 +618,46 @@
   }
 
   /* ================= backup: export / import ================= */
+  function downloadBlob(content, type, filename){
+    var blob = new Blob([content], {type: type});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+  }
+
   function exportBackup(){
     try {
-      var json = JSON.stringify(STATE, null, 2);
-      var blob = new Blob([json], {type:"application/json"});
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement("a");
       var ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
-      a.href = url;
-      a.download = "keihi-shinsa-backup-" + ts + ".json";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+      downloadBlob(JSON.stringify(STATE, null, 2), "application/json", "shishutsu-shinsa-backup-" + ts + ".json");
       toast("バックアップファイルをダウンロードしました");
     } catch(e){
       toast("バックアップの作成に失敗しました");
+    }
+  }
+
+  function csvField(v){
+    var s = String(v==null?"":v);
+    if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g,'""') + '"';
+    return s;
+  }
+
+  function exportCsv(){
+    try {
+      var header = ["日付","費目","金額","内容・メモ","ステータス","審査コメント","審査日"];
+      var rows = sorted().map(function(e){
+        return [e.date, e.category, e.amount, e.memo, STATUS[e.status].label, e.reviewComment, e.reviewedAt||""].map(csvField).join(",");
+      });
+      var csv = "﻿" + header.join(",") + "\r\n" + rows.join("\r\n");
+      var ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+      downloadBlob(csv, "text/csv;charset=utf-8", "shishutsu-kiroku-" + ts + ".csv");
+      toast("CSVファイルをダウンロードしました");
+    } catch(e){
+      toast("CSVの作成に失敗しました");
     }
   }
 
@@ -568,6 +670,7 @@
         var ok = window.confirm("バックアップを読み込むと、現在のデータは上書きされます。よろしいですか？");
         if (!ok) return;
         STATE = data;
+        if (!STATE.budgets) STATE.budgets = {};
         ui.selectedId = null;
         renderApp();
         saveState("バックアップから復元しました（" + STATE.expenses.length + " 件）");
@@ -599,10 +702,16 @@
     };
     var btnNew = document.getElementById('btnNew');
     if (btnNew) btnNew.onclick = openNewModal;
+    var btnBudget = document.getElementById('btnBudget');
+    if (btnBudget) btnBudget.onclick = openBudgetModal;
+    var btnCsv = document.getElementById('btnCsv');
+    if (btnCsv) btnCsv.onclick = exportCsv;
     var btnExport = document.getElementById('btnExport');
     if (btnExport) btnExport.onclick = exportBackup;
     var btnImport = document.getElementById('btnImport');
     if (btnImport) btnImport.onclick = function(){ document.getElementById('restoreFile').click(); };
+    var dashMonthSel = document.getElementById('dashMonthSel');
+    if (dashMonthSel) dashMonthSel.onchange = function(){ ui.dashMonth = dashMonthSel.value; renderApp(); };
   }
   document.getElementById('modalOverlay').addEventListener('click', function(ev){
     if (ev.target.id === 'modalOverlay') closeModal();
