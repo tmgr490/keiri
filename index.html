@@ -280,6 +280,7 @@
 
 <input type="file" id="restoreFile" accept="application/json" style="display:none">
 <input type="file" id="salaryImportFile" accept="application/json" style="display:none">
+<input type="file" id="kakeiboImportFile" accept="application/json" style="display:none">
 
 <script>
 (function(){
@@ -374,10 +375,13 @@
       '<div class="spacer"></div>' +
       (ui.view === 'income'
         ? '<button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
+        : ui.view === 'dashboard'
+        ? '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>'
         : '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>' +
           '<button class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>' +
           '<button class="btn-ghost-sm" id="btnExport">バックアップを保存</button>' +
           '<button class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>' +
+          '<button class="btn-ghost-sm" id="btnKakeiboImport">家計簿トラッカーを読み込む</button>' +
           '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>') +
       '</div>';
 
@@ -529,8 +533,9 @@
   }
 
   /* ================= salary tracker import ================= */
-  /* シンプル化: 給与サイクルの締め日・支払日は再現せず、
-     「その月に発生した給与（時給計算分の交通費こみ）」を月ごとに1件の収入としてまとめるだけにする。 */
+  /* 読み込み時点で「実際に支給されている」給与だけを取り込む。
+     バイトごとの締め日・支払日（土日祝の前後調整込み）から支払日を計算し、
+     支払日が読み込み時点（今日）を過ぎているサイクルだけを収入として取り込む。 */
   function importSalaryTracker(data){
     var jobs = data.jobs || [];
     var shifts = data.shifts || [];
@@ -538,10 +543,48 @@
     var holidays = data.holidays || {};
 
     function parseYMD(s){ var p=s.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]); }
+    function pad2(n){ return n<10 ? '0'+n : ''+n; }
+    function toKey(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
     function isSunday(d){ return d.getDay()===0; }
     function isHoliday(k){ return !!holidays[k]; }
     function dayType(k){ var d=parseYMD(k); return (isSunday(d)||isHoliday(k)) ? 'holiday' : 'weekday'; }
     function timeToHours(t){ var p=t.split(':').map(Number); return p[0]+p[1]/60; }
+    // day=0 は「月末」を意味する
+    function dayOfMonthClamped(y, mIdx, day){
+      if (day===0) return new Date(y, mIdx+1, 0);
+      var dim = new Date(y, mIdx+1, 0).getDate();
+      return new Date(y, mIdx, Math.min(day, dim));
+    }
+    function jobDefaults(job){
+      return {
+        cutoffDay: job.cutoffDay===undefined ? 20 : job.cutoffDay,
+        paymentMonthsAfter: job.paymentMonthsAfter===undefined ? 1 : job.paymentMonthsAfter,
+        paymentDay: job.paymentDay===undefined ? 5 : job.paymentDay,
+        holidayAdjustment: job.holidayAdjustment===undefined ? 'before' : job.holidayAdjustment
+      };
+    }
+    // 給与サイクルキー = 締め日が属する月（'YYYY-MM'）
+    function cycleKeyForDate(d, cfg){
+      var y = d.getFullYear(), m = d.getMonth();
+      var cutoff = dayOfMonthClamped(y, m, cfg.cutoffDay);
+      if (d <= cutoff) return y+'-'+pad2(m+1);
+      var next = new Date(y, m+1, 1);
+      return next.getFullYear()+'-'+pad2(next.getMonth()+1);
+    }
+    // そのサイクルの実際の支払日（土日祝は前後にずらす）
+    function cyclePaymentDate(key, cfg){
+      var parts = key.split('-').map(Number);
+      var mIdx = parts[1]-1;
+      var payMonth = new Date(parts[0], mIdx + (cfg.paymentMonthsAfter||0), 1);
+      var payDate = dayOfMonthClamped(payMonth.getFullYear(), payMonth.getMonth(), cfg.paymentDay);
+      if (cfg.holidayAdjustment !== 'none'){
+        var dir = cfg.holidayAdjustment==='after' ? 1 : -1;
+        while (isSunday(payDate) || payDate.getDay()===6 || isHoliday(toKey(payDate))){
+          payDate = new Date(payDate.getFullYear(), payDate.getMonth(), payDate.getDate()+dir);
+        }
+      }
+      return payDate;
+    }
     function rateForHour(hour, type, job){
       var band = job.wageBands.filter(function(b){ var bs=timeToHours(b.start), be=timeToHours(b.end); return hour>=bs && hour<be; })[0];
       var rate = job.baseWage + (band ? (Number(band.addon)||0) : 0);
@@ -578,27 +621,31 @@
     }
 
     var results = [];
+    var today = new Date(); today.setHours(0,0,0,0);
 
     jobs.forEach(function(job){
+      var cfg = jobDefaults(job);
       var jobShifts = shifts.filter(function(s){ return s.jobId===job.id; });
-      var byMonth = {};
+      var byCycle = {};
       jobShifts.forEach(function(s){
-        var m = s.date.slice(0,7);
-        if (!byMonth[m]) byMonth[m] = [];
-        byMonth[m].push(s);
+        var key = cycleKeyForDate(parseYMD(s.date), cfg);
+        if (!byCycle[key]) byCycle[key] = [];
+        byCycle[key].push(s);
       });
-      Object.keys(byMonth).forEach(function(month){
-        var group = byMonth[month];
+      Object.keys(byCycle).forEach(function(cycleKey){
+        var payDate = cyclePaymentDate(cycleKey, cfg);
+        if (payDate > today) return; // まだ支給日が来ていないサイクルは取り込まない
+        var group = byCycle[cycleKey];
         var workDays = Array.from(new Set(group.map(function(s){ return s.date; }))).length;
         var wage = group.reduce(function(sum,s){ return sum + calcShiftWage(s, job); }, 0);
         var usePass = workDays >= job.passThreshold;
         var commute = usePass ? job.passFare : workDays * job.tripFare;
         results.push({
-          date: month + '-01',
+          date: toKey(payDate),
           amount: wage + commute,
           source: job.name,
-          memo: '給与トラッカーより（' + month + ' 分・交通費こみ）',
-          sourceKey: 'salary:' + job.id + ':' + month
+          memo: '給与トラッカーより（' + cycleKey + ' 締め分・交通費こみ・支払日 ' + toKey(payDate) + '）',
+          sourceKey: 'salary:' + job.id + ':' + cycleKey
         });
       });
     });
@@ -727,6 +774,52 @@
 
   function kpi(label,val,sub,warn,bad){
     return '<div class="kpi' + (bad?' bad':(warn?' warn':'')) + '"><div class="lbl">' + label + '</div><div class="val">' + val + '</div>' + (sub?'<div class="sub">'+sub+'</div>':'') + '</div>';
+  }
+
+  /* ================= kakeibo tracker import (支出) ================= */
+  function importKakeibo(data){
+    var existingKeys = {};
+    STATE.expenses.forEach(function(e){ if (e.sourceKey) existingKeys[e.sourceKey] = true; });
+    var added = 0, skippedExisting = 0, skippedIncome = 0;
+    (data.transactions || []).forEach(function(t){
+      if (t.amount == null) return;
+      if (t.amount <= 0) { skippedIncome++; return; } // 入金・精算（マイナス）は支出ではないので対象外
+      var key = 'kakeibo:' + t.id;
+      if (existingKeys[key]) { skippedExisting++; return; }
+      var cat = t.category || 'その他';
+      if (STATE.categories.indexOf(cat) === -1) STATE.categories.push(cat);
+      STATE.expenses.push({
+        id: uid(),
+        date: t.date,
+        category: cat,
+        amount: t.amount,
+        memo: [t.method, t.detail].filter(Boolean).join(' ・ '),
+        receipt: null,
+        status: 'pending',
+        reviewComment: '',
+        reviewedAt: null,
+        createdAt: Date.now(),
+        sourceKey: key
+      });
+      added++;
+    });
+    return { added: added, skippedExisting: skippedExisting, skippedIncome: skippedIncome };
+  }
+
+  function handleKakeiboImportFile(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var data = JSON.parse(reader.result);
+        if (!data || !Array.isArray(data.transactions)) throw new Error("invalid");
+        var result = importKakeibo(data);
+        renderApp();
+        saveState('家計簿トラッカーから読み込みました（新規' + result.added + '件を未審査として追加・既存' + result.skippedExisting + '件はスキップ）');
+      } catch(e){
+        toast('読み込みに失敗しました。家計簿トラッカーの「バックアップを書き出す」で作ったファイルか確認してください');
+      }
+    };
+    reader.readAsText(file);
   }
 
   /* ================= modal: new expense ================= */
@@ -968,6 +1061,8 @@
     if (btnNewIncome) btnNewIncome.onclick = openIncomeModal;
     var btnSalaryImport = document.getElementById('btnSalaryImport');
     if (btnSalaryImport) btnSalaryImport.onclick = function(){ document.getElementById('salaryImportFile').click(); };
+    var btnKakeiboImport = document.getElementById('btnKakeiboImport');
+    if (btnKakeiboImport) btnKakeiboImport.onclick = function(){ document.getElementById('kakeiboImportFile').click(); };
     document.querySelectorAll('[data-income-del]').forEach(function(b){
       b.onclick = function(){ deleteIncome(b.getAttribute('data-income-del')); };
     });
@@ -986,6 +1081,11 @@
   document.getElementById('salaryImportFile').addEventListener('change', function(ev){
     var file = ev.target.files[0];
     if (file) handleSalaryImportFile(file);
+    ev.target.value = "";
+  });
+  document.getElementById('kakeiboImportFile').addEventListener('change', function(ev){
+    var file = ev.target.files[0];
+    if (file) handleKakeiboImportFile(file);
     ev.target.value = "";
   });
 
