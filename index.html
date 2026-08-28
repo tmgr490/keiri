@@ -950,11 +950,27 @@
     if ((action==='return' || action==='reject') && !note) {
       toast('要注意・却下の理由を入力してください'); return;
     }
+    var prevId = e.id;
     e.status = action==='approve' ? 'approved' : action==='return' ? 'returned' : 'rejected';
     e.reviewComment = note;
     e.reviewedAt = new Date().toISOString().slice(0,10);
+
+    // 次の未審査項目へ自動的に選択を移動する
+    var list = sorted();
+    var idx = list.findIndex(function(x){ return x.id === prevId; });
+    var next = null;
+    for (var i = idx + 1; i < list.length; i++){
+      if (list[i].status === 'pending') { next = list[i]; break; }
+    }
+    if (!next){
+      for (var j = 0; j < idx; j++){
+        if (list[j].status === 'pending') { next = list[j]; break; }
+      }
+    }
+    ui.selectedId = next ? next.id : null;
+
     renderApp();
-    saveState('ステータスを「' + STATUS[e.status].label + '」に更新しました');
+    saveState('ステータスを「' + STATUS[e.status].label + '」に更新しました' + (next ? '。次の未審査項目を表示しています' : ''));
   }
 
   /* ================= backup: export / import ================= */
