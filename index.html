@@ -295,10 +295,9 @@
   /* ================= constants ================= */
   var DEFAULT_CATEGORIES = ["食費","交際費","娯楽費","交通費","日用品","通信費","書籍・学用品","衣服・美容","医療費","その他"];
   var STATUS = {
-    pending:  {label:"未審査", cls:"st-pending"},
-    approved: {label:"承認",   cls:"st-approved"},
-    returned: {label:"要注意", cls:"st-returned"},
-    rejected: {label:"却下",   cls:"st-rejected"}
+    pending:  {label:"未審査",     cls:"st-pending"},
+    approved: {label:"承認",       cls:"st-approved"},
+    rejected: {label:"無駄遣い認定", cls:"st-rejected"}
   };
 
   /* ================= state ================= */
@@ -341,7 +340,7 @@
   function sortedIncomes(){ return STATE.incomes.slice().sort(function(a,b){ return (b.date||"").localeCompare(a.date||"") || b.createdAt-a.createdAt; }); }
   function incomeInMonth(month){ return STATE.incomes.filter(function(e){ return monthKey(e.date)===month; }).reduce(function(s,e){ return s+(e.amount||0); },0); }
   function counts(){
-    var c = {all: STATE.expenses.length, pending:0, approved:0, returned:0, rejected:0};
+    var c = {all: STATE.expenses.length, pending:0, approved:0, rejected:0};
     STATE.expenses.forEach(function(e){ c[e.status] = (c[e.status]||0)+1; });
     return c;
   }
@@ -375,21 +374,17 @@
       '</div>';
 
     html += '<div class="nav">' +
-      navBtn('review','審査キュー') + navBtn('income','収入') + navBtn('dashboard','予算ダッシュボード') +
+      navBtn('review','審査キュー') + navBtn('income','収入') + navBtn('dashboard','予算ダッシュボード') + navBtn('settings','設定') +
       '<div class="spacer"></div>' +
       (ui.view === 'income'
         ? '<button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
-        : ui.view === 'dashboard'
-        ? '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>'
-        : '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>' +
-          '<button class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>' +
-          '<button class="btn-ghost-sm" id="btnExport">バックアップを保存</button>' +
-          '<button class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>' +
-          '<button class="btn-ghost-sm" id="btnKakeiboImport">家計簿トラッカーを読み込む</button>' +
+        : ui.view === 'dashboard' || ui.view === 'settings'
+        ? ''
+        : '<button class="btn-ghost-sm" id="btnKakeiboImport">家計簿トラッカーを読み込む</button>' +
           '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>') +
       '</div>';
 
-    html += ui.view === 'review' ? renderReview(c) : (ui.view === 'income' ? renderIncome() : renderDashboard());
+    html += ui.view === 'review' ? renderReview(c) : ui.view === 'income' ? renderIncome() : ui.view === 'dashboard' ? renderDashboard() : renderSettings();
     document.getElementById('app').innerHTML = html;
     bindEvents();
   }
@@ -404,7 +399,7 @@
 
   function renderReview(c){
     var list = sorted().filter(function(e){ return ui.filter==='all' ? true : e.status===ui.filter; });
-    var chips = [['all','すべて',c.all],['pending','未審査',c.pending],['returned','要注意',c.returned],['rejected','却下',c.rejected],['approved','承認',c.approved]];
+    var chips = [['all','すべて',c.all],['pending','未審査',c.pending],['rejected','無駄遣い認定',c.rejected],['approved','承認',c.approved]];
 
     var out = '<div class="review"><div>';
     out += '<div class="filters">' + chips.map(function(ch){
@@ -476,12 +471,11 @@
       out += '<div class="history">前回の審査コメント（' + esc(st.label) + (e.reviewedAt ? '・' + fmtDate(e.reviewedAt) : '') + '）：' + esc(e.reviewComment) + '</div>';
     }
 
-    out += '<div class="actions"><label for="reviewNote">審査コメント（要注意・却下時は入力必須）</label>' +
+    out += '<div class="actions"><label for="reviewNote">審査コメント（無駄遣い認定時は入力必須）</label>' +
       '<textarea id="reviewNote" placeholder="例）予算オーバーしたので来月は控える"></textarea>' +
       '<div class="act-row">' +
       actBtn('approve','act-approve','承認する') +
-      actBtn('return','act-return','要注意にする') +
-      actBtn('reject','act-reject','却下する（無駄遣い認定）') +
+      actBtn('reject','act-reject','無駄遣い認定する') +
       '</div>' +
       '<div class="act-row"><button type="button" class="cat-del" style="width:100%" data-expense-del="' + e.id + '">この記録を削除</button></div>' +
       '</div>';
@@ -722,7 +716,7 @@
     var budgetTotal = STATE.categories.reduce(function(s,cat){ return s + (STATE.budgets[cat]||0); }, 0);
     var spentTotal = monthExpenses.reduce(function(s,e){ return s+(e.amount||0); },0);
     var remaining = budgetTotal - spentTotal;
-    var flaggedCount = monthExpenses.filter(function(e){ return e.status==='returned' || e.status==='rejected'; }).length;
+    var flaggedCount = monthExpenses.filter(function(e){ return e.status==='rejected'; }).length;
 
     var out = '<div class="dash-toolbar"><label for="dashMonthSel">対象月</label><select id="dashMonthSel">' +
       months.map(function(m){ return '<option value="' + m + '"' + (m===month?' selected':'') + '>' + monthLabel(m) + '</option>'; }).join('') +
@@ -739,7 +733,7 @@
       kpi('今月の予算合計', budgetTotal ? yen(budgetTotal) : '未設定', budgetTotal ? '' : '「予算を設定」から入力してください') +
       kpi('今月の支出合計', yen(spentTotal), monthExpenses.length + ' 件') +
       kpi('残り予算', yen(remaining), remaining<0 ? '予算オーバー' : '', remaining<0, remaining<0) +
-      kpi('要注意・却下件数', flaggedCount + ' 件', monthExpenses.length ? Math.round(flaggedCount/monthExpenses.length*100)+'%' : '', flaggedCount>0) +
+      kpi('無駄遣い認定件数', flaggedCount + ' 件', monthExpenses.length ? Math.round(flaggedCount/monthExpenses.length*100)+'%' : '', flaggedCount>0) +
       '</div>';
 
     out += '<div class="panels"><div class="panel"><h3>カテゴリ別 予算消化状況（' + monthLabel(month) + '）</h3>';
@@ -760,14 +754,74 @@
     out += '</div>';
 
     out += '<div class="panel"><h3>ステータス内訳（' + monthLabel(month) + '）</h3>';
-    var mc = {pending:0,approved:0,returned:0,rejected:0};
+    var mc = {pending:0,approved:0,rejected:0};
     monthExpenses.forEach(function(e){ mc[e.status] = (mc[e.status]||0)+1; });
-    ['pending','approved','returned','rejected'].forEach(function(k){
+    ['pending','approved','rejected'].forEach(function(k){
       out += '<div class="status-row"><span class="dot" style="background:var(--' + k + ')"></span>' + STATUS[k].label + '<span class="cnt">' + (mc[k]||0) + ' 件</span></div>';
     });
     out += '<h3 style="margin-top:20px">月次支出の推移</h3>' + monthlyTrendSVG();
-    out += '</div></div>';
+    out += '</div>';
+
+    out += '<div class="panel" style="grid-column:1/-1"><h3>利用状況（用途別・' + monthLabel(month) + '）</h3>' + categoryPieSVG(month) + '</div>';
+
+    out += '</div>';
     return out;
+  }
+
+  function categoryPieSVG(month){
+    var monthExpenses = STATE.expenses.filter(function(e){ return monthKey(e.date)===month; });
+    var totals = {};
+    var total = 0;
+    monthExpenses.forEach(function(e){
+      var amt = e.amount || 0;
+      if (amt <= 0) return;
+      totals[e.category] = (totals[e.category] || 0) + amt;
+      total += amt;
+    });
+    var cats = Object.keys(totals).sort(function(a,b){ return totals[b]-totals[a]; });
+    if (!cats.length || total <= 0) return '<div class="empty">この月の支出データがありません。</div>';
+
+    var w = 340, h = 280, cx = 130, cy = 140, r = 82, labelR = r + 40;
+    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;max-height:300px" role="img" aria-label="用途別の利用状況の円グラフ">';
+    var angle = -Math.PI / 2; // 12時位置から時計回りに開始
+
+    cats.forEach(function(cat, i){
+      var amt = totals[cat];
+      var frac = amt / total;
+      var sweep = frac * Math.PI * 2;
+      var a0 = angle, a1 = angle + sweep;
+      var x0 = cx + r*Math.cos(a0), y0 = cy + r*Math.sin(a0);
+      var x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+      var large = sweep > Math.PI ? 1 : 0;
+      var hue = Math.round((i * 47) % 360);
+      var color = 'hsl(' + hue + ',55%,50%)';
+      var pct = Math.round(frac*100);
+
+      svg += '<path d="M' + cx + ',' + cy + ' L' + x0.toFixed(1) + ',' + y0.toFixed(1) +
+        ' A' + r + ',' + r + ' 0 ' + large + ' 1 ' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' Z" ' +
+        'fill="' + color + '" stroke="var(--surface)" stroke-width="1.5">' +
+        '<title>' + esc(cat) + '：' + yen(amt) + '（' + pct + '%）</title></path>';
+
+      var mid = (a0 + a1) / 2;
+      if (pct >= 8) {
+        // スライス内に費目名と割合を直接埋め込む
+        var ix = cx + r*0.6*Math.cos(mid), iy = cy + r*0.6*Math.sin(mid);
+        svg += '<text x="' + ix.toFixed(1) + '" y="' + (iy-3).toFixed(1) + '" font-size="10.5" font-weight="700" text-anchor="middle" fill="#fff">' + esc(cat.length>7 ? cat.slice(0,7)+'…' : cat) + '</text>';
+        svg += '<text x="' + ix.toFixed(1) + '" y="' + (iy+10).toFixed(1) + '" font-size="9.5" text-anchor="middle" fill="#fff">' + pct + '%</text>';
+      } else if (pct >= 3) {
+        // 小さいスライスは引き出し線でグラフの外周に注記する
+        var lx1 = cx + (r-4)*Math.cos(mid), ly1 = cy + (r-4)*Math.sin(mid);
+        var lx2 = cx + labelR*Math.cos(mid), ly2 = cy + labelR*Math.sin(mid);
+        var anchor = Math.cos(mid) > 0.2 ? 'start' : (Math.cos(mid) < -0.2 ? 'end' : 'middle');
+        svg += '<line x1="' + lx1.toFixed(1) + '" y1="' + ly1.toFixed(1) + '" x2="' + lx2.toFixed(1) + '" y2="' + ly2.toFixed(1) + '" stroke="var(--ink-soft)" stroke-width="1"/>';
+        svg += '<text x="' + lx2.toFixed(1) + '" y="' + (ly2-2).toFixed(1) + '" font-size="9.5" text-anchor="' + anchor + '" fill="var(--ink)">' + esc(cat) + '</text>';
+        svg += '<text x="' + lx2.toFixed(1) + '" y="' + (ly2+10).toFixed(1) + '" font-size="9" text-anchor="' + anchor + '" fill="var(--ink-soft)">' + pct + '%</text>';
+      }
+      angle = a1;
+    });
+
+    svg += '</svg>';
+    return svg;
   }
 
   function monthlyTrendSVG(){
@@ -797,11 +851,71 @@
     return '<div class="kpi' + (bad?' bad':(warn?' warn':'')) + '"><div class="lbl">' + label + '</div><div class="val">' + val + '</div>' + (sub?'<div class="sub">'+sub+'</div>':'') + '</div>';
   }
 
-  /* ================= kakeibo tracker import (支出) ================= */
+  function renderSettings(){
+    function row(title, desc, btnHTML){
+      return '<div class="card" style="cursor:default"><div class="card-top"><div>' +
+        '<div class="card-name">' + title + '</div>' +
+        '<div class="card-meta">' + desc + '</div>' +
+        '</div>' + btnHTML + '</div></div>';
+    }
+    var out = '<div class="list" style="max-width:640px">';
+    out += row('費目・予算を管理', '費目の追加・削除や、月ごとの予算を設定します。',
+      '<button type="button" class="btn-ghost-sm" id="btnBudget">予算を設定</button>');
+    out += row('CSVエクスポート', '支出・収入をまとめてCSVで書き出します（Excelでそのまま開けます）。',
+      '<button type="button" class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>');
+    out += row('バックアップを保存', '全データをJSONファイルとして書き出します。他の端末へ移す・万一に備える用です。',
+      '<button type="button" class="btn-ghost-sm" id="btnExport">バックアップを保存</button>');
+    out += row('バックアップを読み込む', '書き出したJSONファイルから全データを復元します（現在のデータは上書きされます）。',
+      '<button type="button" class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>');
+    out += '</div>';
+    return out;
+  }
+
+  /* ================= kakeibo tracker import (支出 + サブスク・固定費) ================= */
+  var KAKEIBO_SUB_CATEGORY = 'サブスク・固定費';
+
+  function kakeiboParseDate(s){ var p = s.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
+  function kakeiboPad2(n){ return n<10 ? '0'+n : ''+n; }
+  function kakeiboFmt(d){ return d.getFullYear()+'-'+kakeiboPad2(d.getMonth()+1)+'-'+kakeiboPad2(d.getDate()); }
+  function kakeiboMonthEndDay(y,m){ return new Date(y,m,0).getDate(); } // m:1-12
+  function kakeiboAddMonths(y,m,n){ var mm=m+n, yy=y; while(mm>12){mm-=12;yy++;} while(mm<1){mm+=12;yy--;} return [yy,mm]; }
+
+  // サブスク・固定費の発生日を fromDate〜toDate の範囲で展開する（トラッカー本体のロジックを踏襲）
+  function kakeiboSubOccurrences(sub, fromDate, toDate){
+    var start = kakeiboParseDate(sub.start);
+    var out = [];
+    if (sub.interval === '週次'){
+      var d = new Date(start);
+      while (d < fromDate){ d.setDate(d.getDate()+7); }
+      while (d <= toDate){ out.push(new Date(d)); d.setDate(d.getDate()+7); if (out.length>500) break; }
+    } else if (sub.interval === '年次'){
+      var y = start.getFullYear();
+      while (true){
+        var dy = new Date(y, start.getMonth(), Math.min(start.getDate(), kakeiboMonthEndDay(y, start.getMonth()+1)));
+        if (dy > toDate) break;
+        if (dy >= fromDate) out.push(dy);
+        y++;
+        if (out.length>200) break;
+      }
+    } else { // 月次（デフォルト）
+      var ym = start.getFullYear(), mm = start.getMonth()+1;
+      while (true){
+        var day = Math.min(start.getDate(), kakeiboMonthEndDay(ym, mm));
+        var dm = new Date(ym, mm-1, day);
+        if (dm > toDate) break;
+        if (dm >= fromDate) out.push(dm);
+        var nm = kakeiboAddMonths(ym, mm, 1); ym = nm[0]; mm = nm[1];
+        if (out.length>800) break;
+      }
+    }
+    return out;
+  }
+
   function importKakeibo(data){
     var existingKeys = {};
     STATE.expenses.forEach(function(e){ if (e.sourceKey) existingKeys[e.sourceKey] = true; });
-    var added = 0, skippedExisting = 0, skippedIncome = 0;
+    var added = 0, skippedExisting = 0, skippedIncome = 0, addedSubs = 0;
+
     (data.transactions || []).forEach(function(t){
       if (t.amount == null) return;
       if (t.amount <= 0) { skippedIncome++; return; } // 入金・精算（マイナス）は支出ではないので対象外
@@ -824,7 +938,37 @@
       });
       added++;
     });
-    return { added: added, skippedExisting: skippedExisting, skippedIncome: skippedIncome };
+
+    // サブスク・固定費：登録済みサブスクの請求予定日を、開始日〜読み込み時点まで展開して取り込む
+    var today = new Date(); today.setHours(0,0,0,0);
+    (data.subscriptions || []).forEach(function(sub){
+      if (!sub || sub.status !== '有効') return;
+      if (!sub.start || !sub.amount) return;
+      var fromDate = kakeiboParseDate(sub.start);
+      var occ = kakeiboSubOccurrences(sub, fromDate, today);
+      occ.forEach(function(d){
+        var dateStr = kakeiboFmt(d);
+        var key = 'kakeiboSub:' + sub.id + ':' + dateStr;
+        if (existingKeys[key]) { skippedExisting++; return; }
+        if (STATE.categories.indexOf(KAKEIBO_SUB_CATEGORY) === -1) STATE.categories.push(KAKEIBO_SUB_CATEGORY);
+        STATE.expenses.push({
+          id: uid(),
+          date: dateStr,
+          category: KAKEIBO_SUB_CATEGORY,
+          amount: sub.amount,
+          memo: [sub.name, sub.method, sub.memo].filter(Boolean).join(' ・ '),
+          receipt: null,
+          status: 'pending',
+          reviewComment: '',
+          reviewedAt: null,
+          createdAt: Date.now(),
+          sourceKey: key
+        });
+        added++; addedSubs++;
+      });
+    });
+
+    return { added: added, skippedExisting: skippedExisting, skippedIncome: skippedIncome, addedSubs: addedSubs };
   }
 
   function handleKakeiboImportFile(file){
@@ -835,7 +979,7 @@
         if (!data || !Array.isArray(data.transactions)) throw new Error("invalid");
         var result = importKakeibo(data);
         renderApp();
-        saveState('家計簿トラッカーから読み込みました（新規' + result.added + '件を未審査として追加・既存' + result.skippedExisting + '件はスキップ）');
+        saveState('家計簿トラッカーから読み込みました（新規' + result.added + '件（うちサブスク・固定費' + result.addedSubs + '件）を未審査として追加・既存' + result.skippedExisting + '件はスキップ）');
       } catch(e){
         toast('読み込みに失敗しました。家計簿トラッカーの「バックアップを書き出す」で作ったファイルか確認してください');
       }
@@ -968,11 +1112,11 @@
     if (!e) return;
     var note = (document.getElementById('reviewNote')||{}).value || '';
     note = note.trim();
-    if ((action==='return' || action==='reject') && !note) {
-      toast('要注意・却下の理由を入力してください'); return;
+    if (action==='reject' && !note) {
+      toast('無駄遣い認定の理由を入力してください'); return;
     }
     var prevId = e.id;
-    e.status = action==='approve' ? 'approved' : action==='return' ? 'returned' : 'rejected';
+    e.status = action==='approve' ? 'approved' : 'rejected';
     e.reviewComment = note;
     e.reviewedAt = new Date().toISOString().slice(0,10);
 
