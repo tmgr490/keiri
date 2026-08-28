@@ -249,6 +249,13 @@
   .budget-form-row .cat{width:120px;flex:none;font-size:13px;font-weight:700;}
   .budget-form-row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13.5px;background:var(--paper-raised);color:var(--ink);}
   .budget-form-row .yen{color:var(--ink-faint);font-size:12.5px;}
+  .cat-del{
+    flex:none;width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--surface);
+    color:var(--ink-faint);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .cat-del:hover{background:var(--rejected-soft);color:var(--rejected);border-color:var(--rejected);}
+  .cat-add-row{display:flex;gap:8px;margin-bottom:16px;}
+  .cat-add-row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13.5px;background:var(--paper-raised);color:var(--ink);}
 
   .lightbox{position:fixed;inset:0;background:rgba(10,10,8,.86);display:none;align-items:center;justify-content:center;z-index:60;cursor:zoom-out;padding:30px;}
   .lightbox.show{display:flex;}
@@ -272,6 +279,7 @@
 <div class="toast" id="toast"></div>
 
 <input type="file" id="restoreFile" accept="application/json" style="display:none">
+<input type="file" id="salaryImportFile" accept="application/json" style="display:none">
 
 <script>
 (function(){
@@ -280,7 +288,7 @@
   var STORAGE_KEY = "keihiShinsaState.v1";
 
   /* ================= constants ================= */
-  var CATEGORIES = ["食費","交際費","娯楽費","交通費","日用品","通信費","書籍・学用品","衣服・美容","医療費","その他"];
+  var DEFAULT_CATEGORIES = ["食費","交際費","娯楽費","交通費","日用品","通信費","書籍・学用品","衣服・美容","医療費","その他"];
   var STATUS = {
     pending:  {label:"未審査", cls:"st-pending"},
     approved: {label:"承認",   cls:"st-approved"},
@@ -297,6 +305,8 @@
   } catch(e){ STATE = { expenses: [], budgets: {} }; }
   if (!STATE.expenses) STATE.expenses = [];
   if (!STATE.budgets) STATE.budgets = {};
+  if (!STATE.categories || !STATE.categories.length) STATE.categories = DEFAULT_CATEGORIES.slice();
+  if (!STATE.incomes) STATE.incomes = [];
 
   var ui = { view: "review", filter: "all", selectedId: null, dashMonth: new Date().toISOString().slice(0,7) };
   var saveTimer = null;
@@ -322,6 +332,9 @@
 
   function byId(id){ return STATE.expenses.find(function(e){ return e.id===id; }); }
   function sorted(){ return STATE.expenses.slice().sort(function(a,b){ return (b.date||"").localeCompare(a.date||"") || b.createdAt-a.createdAt; }); }
+  function incomeById(id){ return STATE.incomes.find(function(e){ return e.id===id; }); }
+  function sortedIncomes(){ return STATE.incomes.slice().sort(function(a,b){ return (b.date||"").localeCompare(a.date||"") || b.createdAt-a.createdAt; }); }
+  function incomeInMonth(month){ return STATE.incomes.filter(function(e){ return monthKey(e.date)===month; }).reduce(function(s,e){ return s+(e.amount||0); },0); }
   function counts(){
     var c = {all: STATE.expenses.length, pending:0, approved:0, returned:0, rejected:0};
     STATE.expenses.forEach(function(e){ c[e.status] = (c[e.status]||0)+1; });
@@ -338,6 +351,12 @@
     set[new Date().toISOString().slice(0,7)] = true;
     return Object.keys(set).sort().reverse();
   }
+  function allCategoryNames(){
+    var set = {};
+    STATE.categories.forEach(function(c){ set[c] = true; });
+    STATE.expenses.forEach(function(e){ if (e.category) set[e.category] = true; });
+    return Object.keys(set);
+  }
 
   /* ================= rendering ================= */
   function renderApp(){
@@ -351,16 +370,18 @@
       '</div>';
 
     html += '<div class="nav">' +
-      navBtn('review','審査キュー') + navBtn('dashboard','予算ダッシュボード') +
+      navBtn('review','審査キュー') + navBtn('income','収入') + navBtn('dashboard','予算ダッシュボード') +
       '<div class="spacer"></div>' +
       '<button class="btn-ghost-sm" id="btnBudget">予算を設定</button>' +
       '<button class="btn-ghost-sm" id="btnCsv">CSVエクスポート</button>' +
       '<button class="btn-ghost-sm" id="btnExport">バックアップを保存</button>' +
       '<button class="btn-ghost-sm" id="btnImport">バックアップを読み込む</button>' +
-      '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>' +
+      (ui.view === 'income'
+        ? '<button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
+        : '<button class="btn-primary" id="btnNew">＋ 新規支出を記録</button>') +
       '</div>';
 
-    html += ui.view === 'review' ? renderReview(c) : renderDashboard();
+    html += ui.view === 'review' ? renderReview(c) : (ui.view === 'income' ? renderIncome() : renderDashboard());
     document.getElementById('app').innerHTML = html;
     bindEvents();
   }
@@ -446,12 +467,234 @@
     return '<button class="act-btn ' + cls + '" data-action="' + action + '">' + label + '</button>';
   }
 
+  function renderIncome(){
+    var list = sortedIncomes();
+    var out = '';
+    if (!list.length) {
+      out += '<div class="empty">まだ収入の記録がありません。「＋ 新規収入を記録」で手入力するか、「給与トラッカーを読み込む」でバイト先の給与データをまとめて取り込めます。</div>';
+    } else {
+      out += '<div class="list" style="max-width:640px">' + list.map(incomeCardHTML).join('') + '</div>';
+    }
+    return out;
+  }
+
+  function incomeCardHTML(e){
+    return '<div class="card" data-income-row="' + e.id + '">' +
+      '<div class="card-top"><div><div class="card-name">' + esc(e.source||'収入') + '</div>' +
+      '<div class="card-meta">' + fmtDate(e.date) + (e.memo ? ' ・ ' + esc(e.memo.slice(0,30)) + (e.memo.length>30?'…':'') : '') +
+      (e.sourceKey ? ' ・ <span style="color:var(--brand)">給与トラッカー連携</span>' : '') + '</div></div>' +
+      '<div class="card-amount" style="color:var(--approved)">+' + yen(e.amount) + '</div></div>' +
+      '<div class="card-bottom" style="justify-content:flex-end"><button type="button" class="cat-del" data-income-del="' + e.id + '" title="削除">×</button></div></div>';
+  }
+
+  /* ================= modal: new income ================= */
+  function openIncomeModal(){
+    var today = new Date().toISOString().slice(0,10);
+    var body = '<h2>新規収入を記録</h2>' +
+      '<div class="form-2col">' +
+      '<div class="form-row"><label>受取日</label><input type="date" id="in-date" value="' + today + '"></div>' +
+      '<div class="form-row"><label>収入元</label><input type="text" id="in-source" placeholder="例）〇〇バイト、お小遣い"></div>' +
+      '</div>' +
+      '<div class="form-row"><label>金額（円）</label><input type="number" id="in-amount" min="0" step="1" placeholder="0"></div>' +
+      '<div class="form-row"><label>メモ（任意）</label><textarea id="in-memo" rows="2"></textarea></div>' +
+      '<div class="modal-actions"><button class="btn-ghost" id="in-cancel">キャンセル</button><button class="btn-primary" id="in-submit">記録する</button></div>';
+    document.getElementById('modalBody').innerHTML = body;
+    document.getElementById('modalOverlay').classList.add('show');
+    document.getElementById('in-cancel').onclick = closeModal;
+    document.getElementById('in-submit').onclick = function(){
+      var source = document.getElementById('in-source').value.trim();
+      var amount = parseFloat(document.getElementById('in-amount').value);
+      if (!source) { toast('収入元を入力してください'); return; }
+      if (!amount || amount<=0) { toast('金額を正しく入力してください'); return; }
+      STATE.incomes.push({
+        id: uid(),
+        date: document.getElementById('in-date').value,
+        source: source,
+        amount: amount,
+        memo: document.getElementById('in-memo').value.trim(),
+        sourceKey: null,
+        createdAt: Date.now()
+      });
+      closeModal();
+      renderApp();
+      saveState('収入を記録しました');
+    };
+  }
+
+  function deleteIncome(id){
+    if (!window.confirm('この収入の記録を削除しますか？')) return;
+    STATE.incomes = STATE.incomes.filter(function(e){ return e.id!==id; });
+    renderApp();
+    saveState('収入の記録を削除しました');
+  }
+
+  /* ================= salary tracker import ================= */
+  function importSalaryTracker(data){
+    var jobs = data.jobs || [];
+    var shifts = data.shifts || [];
+    var actualPayments = data.actualPayments || [];
+    var cycleCorrections = data.cycleCorrections || {};
+    var holidays = data.holidays || {};
+
+    function pad2(n){ return n<10 ? '0'+n : ''+n; }
+    function parseYMD(s){ var p=s.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]); }
+    function toKey(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+    function isSunday(d){ return d.getDay()===0; }
+    function isHoliday(k){ return !!holidays[k]; }
+    function dayType(k){ var d=parseYMD(k); return (isSunday(d)||isHoliday(k)) ? 'holiday' : 'weekday'; }
+    function timeToHours(t){ var p=t.split(':').map(Number); return p[0]+p[1]/60; }
+    function rateForHour(hour, type, job){
+      var band = job.wageBands.filter(function(b){ var bs=timeToHours(b.start), be=timeToHours(b.end); return hour>=bs && hour<be; })[0];
+      var rate = job.baseWage + (band ? (Number(band.addon)||0) : 0);
+      return type==='holiday' ? rate + job.sunAdd : rate;
+    }
+    function bandBoundariesInRange(start,end,job){
+      var points = {};
+      job.wageBands.forEach(function(b){
+        var bs=timeToHours(b.start), be=timeToHours(b.end);
+        if (bs>start && bs<end) points[bs]=true;
+        if (be>start && be<end) points[be]=true;
+      });
+      return Object.keys(points).map(Number);
+    }
+    function calcShiftWage(shift, job){
+      var type = dayType(shift.date);
+      var start = timeToHours(shift.start), end = timeToHours(shift.end);
+      if (end<=start) end += 24;
+      var breakHours = (shift.breakMin||0)/60;
+      var points = [start].concat(bandBoundariesInRange(start,end,job)).concat([end]);
+      points = Array.from(new Set(points)).sort(function(a,b){return a-b;});
+      var totalPay=0, totalHours=0;
+      for (var i=0;i<points.length-1;i++){
+        var segStart=points[i], segEnd=points[i+1];
+        var dur = segEnd-segStart;
+        var rate = rateForHour(segStart % 24, type, job);
+        totalPay += rate*dur; totalHours += dur;
+      }
+      if (breakHours>0 && totalHours>0){
+        var avgRate = totalPay/totalHours;
+        totalPay -= avgRate*breakHours; totalHours -= breakHours;
+      }
+      return { pay: Math.round(totalPay) };
+    }
+    function dayOfMonthClamped(y,mIdx,day){
+      if (day===0) return new Date(y,mIdx+1,0);
+      var dim = new Date(y,mIdx+1,0).getDate();
+      return new Date(y,mIdx,Math.min(day,dim));
+    }
+    function cycleKeyForDate(d,job){
+      var y=d.getFullYear(), m=d.getMonth();
+      var cutoff = dayOfMonthClamped(y,m,job.cutoffDay);
+      if (d<=cutoff) return y+'-'+pad2(m+1);
+      var next = new Date(y,m+1,1);
+      return next.getFullYear()+'-'+pad2(next.getMonth()+1);
+    }
+    function cycleRange(key,job){
+      var p=key.split('-').map(Number); var y=p[0], mIdx=p[1]-1;
+      var end = dayOfMonthClamped(y,mIdx,job.cutoffDay);
+      var prev = new Date(y,mIdx-1,1);
+      var prevCutoff = dayOfMonthClamped(prev.getFullYear(),prev.getMonth(),job.cutoffDay);
+      var start = new Date(prevCutoff.getFullYear(),prevCutoff.getMonth(),prevCutoff.getDate()+1);
+      return {start:start, end:end};
+    }
+    function cyclePaymentDate(key,job){
+      var p=key.split('-').map(Number); var y=p[0], mIdx=p[1]-1;
+      var payMonth = new Date(y, mIdx + (job.paymentMonthsAfter||0), 1);
+      var payDate = dayOfMonthClamped(payMonth.getFullYear(), payMonth.getMonth(), job.paymentDay);
+      var adj = job.holidayAdjustment || 'before';
+      if (adj !== 'none'){
+        var dir = adj==='after' ? 1 : -1;
+        while (isSunday(payDate) || payDate.getDay()===6 || isHoliday(toKey(payDate))){
+          payDate = new Date(payDate.getFullYear(), payDate.getMonth(), payDate.getDate()+dir);
+        }
+      }
+      return payDate;
+    }
+
+    var now = new Date();
+    var results = [];
+
+    jobs.forEach(function(job){
+      var jobShifts = shifts.filter(function(s){ return s.jobId===job.id; });
+      var keys = {};
+      jobShifts.forEach(function(s){ keys[cycleKeyForDate(parseYMD(s.date), job)] = true; });
+      Object.keys(keys).forEach(function(key){
+        var range = cycleRange(key, job);
+        var inCycle = jobShifts.filter(function(s){
+          var d = parseYMD(s.date);
+          return d>=range.start && d<=range.end;
+        });
+        if (!inCycle.length) return;
+        var workDays = Array.from(new Set(inCycle.map(function(s){return s.date;}))).length;
+        var wage = inCycle.reduce(function(sum,s){ return sum + calcShiftWage(s, job).pay; }, 0);
+        var usePass = workDays >= job.passThreshold;
+        var commute = usePass ? job.passFare : workDays * job.tripFare;
+        var corr = (cycleCorrections[job.id] && cycleCorrections[job.id][key]) || {};
+        var effWage = (corr.wage!=null && corr.wage!=='') ? Number(corr.wage) : wage;
+        var effCommute = (corr.commute!=null && corr.commute!=='') ? Number(corr.commute) : commute;
+        var payDate = cyclePaymentDate(key, job);
+        if (payDate > now) return;
+        results.push({
+          date: toKey(payDate),
+          amount: effWage + effCommute,
+          source: job.name,
+          memo: 'シフト計算（' + key + ' 締め分）',
+          sourceKey: 'salary:' + job.id + ':' + key
+        });
+      });
+    });
+
+    actualPayments.forEach(function(p){
+      var job = jobs.filter(function(j){ return j.id===p.jobId; })[0];
+      var p2 = p.month.split('-').map(Number);
+      var monthEnd = new Date(p2[0], p2[1], 0);
+      results.push({
+        date: toKey(monthEnd),
+        amount: (p.taxable||0) + (p.commute||0),
+        source: (job ? job.name : '給与') + '（手入力実績）',
+        memo: p.note || '',
+        sourceKey: 'salaryActual:' + p.jobId + ':' + p.month
+      });
+    });
+
+    return results;
+  }
+
+  function handleSalaryImportFile(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var data = JSON.parse(reader.result);
+        if (!data || !Array.isArray(data.jobs)) throw new Error("invalid");
+        var results = importSalaryTracker(data);
+        var added = 0, updated = 0;
+        results.forEach(function(r){
+          var idx = STATE.incomes.findIndex(function(x){ return x.sourceKey && x.sourceKey===r.sourceKey; });
+          if (idx >= 0) {
+            var changed = STATE.incomes[idx].amount !== r.amount || STATE.incomes[idx].date !== r.date;
+            STATE.incomes[idx] = Object.assign({}, STATE.incomes[idx], r);
+            if (changed) updated++;
+          } else {
+            STATE.incomes.push(Object.assign({ id: uid(), createdAt: Date.now() }, r));
+            added++;
+          }
+        });
+        renderApp();
+        saveState('給与トラッカーから読み込みました（新規' + added + '件・更新' + updated + '件）');
+      } catch(e){
+        toast('読み込みに失敗しました。給与トラッカーの「バックアップを書き出す」で作ったファイルか確認してください');
+      }
+    };
+    reader.readAsText(file);
+  }
+
   function renderDashboard(){
     var month = ui.dashMonth;
     var months = availableMonths();
     var monthExpenses = STATE.expenses.filter(function(e){ return monthKey(e.date)===month; });
+    var monthIncome = incomeInMonth(month);
 
-    var budgetTotal = CATEGORIES.reduce(function(s,cat){ return s + (STATE.budgets[cat]||0); }, 0);
+    var budgetTotal = STATE.categories.reduce(function(s,cat){ return s + (STATE.budgets[cat]||0); }, 0);
     var spentTotal = monthExpenses.reduce(function(s,e){ return s+(e.amount||0); },0);
     var remaining = budgetTotal - spentTotal;
     var flaggedCount = monthExpenses.filter(function(e){ return e.status==='returned' || e.status==='rejected'; }).length;
@@ -459,6 +702,13 @@
     var out = '<div class="dash-toolbar"><label for="dashMonthSel">対象月</label><select id="dashMonthSel">' +
       months.map(function(m){ return '<option value="' + m + '"' + (m===month?' selected':'') + '>' + monthLabel(m) + '</option>'; }).join('') +
       '</select></div>';
+
+    var balance = monthIncome - spentTotal;
+    out += '<div class="kpis" style="grid-template-columns:repeat(3,1fr)">' +
+      kpi('今月の収入', yen(monthIncome), '') +
+      kpi('今月の支出（全体）', yen(spentTotal), '') +
+      kpi('収支', (balance<0?'-':'') + yen(Math.abs(balance)), balance<0 ? '支出が収入を超えています' : '', balance<0, balance<0) +
+      '</div>';
 
     out += '<div class="kpis">' +
       kpi('今月の予算合計', budgetTotal ? yen(budgetTotal) : '未設定', budgetTotal ? '' : '「予算を設定」から入力してください') +
@@ -469,7 +719,7 @@
 
     out += '<div class="panels"><div class="panel"><h3>カテゴリ別 予算消化状況（' + monthLabel(month) + '）</h3>';
     var anyBudget = false;
-    CATEGORIES.forEach(function(cat){
+    allCategoryNames().forEach(function(cat){
       var budget = STATE.budgets[cat] || 0;
       var spent = spentInMonth(cat, month);
       if (!budget && !spent) return;
@@ -528,7 +778,7 @@
     var body = '<h2>新規支出を記録</h2>' +
       '<div class="form-2col">' +
       '<div class="form-row"><label>日付</label><input type="date" id="f-date" value="' + today + '"></div>' +
-      '<div class="form-row"><label>費目</label><select id="f-category">' + CATEGORIES.map(function(c){return '<option>'+c+'</option>';}).join('') + '</select></div>' +
+      '<div class="form-row"><label>費目</label><select id="f-category">' + STATE.categories.map(function(c){return '<option>'+esc(c)+'</option>';}).join('') + '</select></div>' +
       '</div>' +
       '<div class="form-row"><label>金額（円）</label><input type="number" id="f-amount" min="0" step="1" placeholder="0"></div>' +
       '<div class="form-row"><label>内容・メモ</label><textarea id="f-memo" rows="3" placeholder="例）友人とランチ"></textarea></div>' +
@@ -573,19 +823,59 @@
     };
   }
 
-  /* ================= modal: budgets ================= */
-  function openBudgetModal(){
-    var body = '<h2>カテゴリ別 月間予算</h2>' +
-      '<div class="modal-desc">費目ごとに毎月の上限金額を設定します。未設定のままにすると、その費目は予算チェックの対象になりません。</div>';
-    CATEGORIES.forEach(function(cat){
-      body += '<div class="budget-form-row"><span class="cat">' + esc(cat) + '</span>' +
+  /* ================= modal: categories & budgets ================= */
+  function catRowsHTML(){
+    return STATE.categories.map(function(cat){
+      return '<div class="budget-form-row" data-cat-row="' + esc(cat) + '"><span class="cat">' + esc(cat) + '</span>' +
         '<input type="number" min="0" step="1" data-budget-cat="' + esc(cat) + '" value="' + (STATE.budgets[cat]||'') + '" placeholder="0">' +
-        '<span class="yen">円 / 月</span></div>';
-    });
-    body += '<div class="modal-actions"><button class="btn-ghost" id="b-cancel">キャンセル</button><button class="btn-primary" id="b-submit">保存する</button></div>';
+        '<span class="yen">円 / 月</span>' +
+        '<button type="button" class="cat-del" data-cat-del="' + esc(cat) + '" title="この費目を削除">×</button></div>';
+    }).join('');
+  }
+
+  function refreshCatRows(){
+    document.getElementById('catRows').innerHTML = catRowsHTML();
+  }
+
+  function addCategory(){
+    var input = document.getElementById('newCatInput');
+    var v = input.value.trim();
+    if (!v) { toast('費目名を入力してください'); return; }
+    if (STATE.categories.indexOf(v) !== -1) { toast('同じ名前の費目が既にあります'); return; }
+    STATE.categories.push(v);
+    input.value = '';
+    refreshCatRows();
+  }
+
+  function deleteCategory(cat){
+    if (STATE.categories.length <= 1) { toast('費目は最低1つ必要です'); return; }
+    var used = STATE.expenses.filter(function(e){ return e.category===cat; }).length;
+    var msg = used > 0
+      ? ('「' + cat + '」を使った記録が' + used + '件あります。費目を削除しても過去の記録は残りますが、新規記録では選べなくなります。削除しますか？')
+      : ('「' + cat + '」を削除しますか？');
+    if (!window.confirm(msg)) return;
+    STATE.categories = STATE.categories.filter(function(c){ return c !== cat; });
+    delete STATE.budgets[cat];
+    refreshCatRows();
+  }
+
+  function openBudgetModal(){
+    var body = '<h2>費目・予算を管理</h2>' +
+      '<div class="modal-desc">費目の追加・削除と、費目ごとの毎月の予算上限を設定します。未設定のままだと、その費目は予算チェックの対象になりません。</div>' +
+      '<div class="cat-add-row"><input type="text" id="newCatInput" placeholder="新しい費目名（例：サブスク代）"><button type="button" class="btn-ghost-sm" id="newCatAdd">追加</button></div>' +
+      '<div id="catRows">' + catRowsHTML() + '</div>' +
+      '<div class="modal-actions"><button class="btn-ghost" id="b-cancel">キャンセル</button><button class="btn-primary" id="b-submit">保存する</button></div>';
     document.getElementById('modalBody').innerHTML = body;
     document.getElementById('modalOverlay').classList.add('show');
     document.getElementById('b-cancel').onclick = closeModal;
+    document.getElementById('newCatAdd').onclick = addCategory;
+    document.getElementById('newCatInput').addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter') { ev.preventDefault(); addCategory(); }
+    });
+    document.getElementById('catRows').addEventListener('click', function(ev){
+      var btn = ev.target.closest('[data-cat-del]');
+      if (btn) deleteCategory(btn.getAttribute('data-cat-del'));
+    });
     document.getElementById('b-submit').onclick = function(){
       document.querySelectorAll('[data-budget-cat]').forEach(function(inp){
         var cat = inp.getAttribute('data-budget-cat');
@@ -595,7 +885,7 @@
       });
       closeModal();
       renderApp();
-      saveState('予算を更新しました');
+      saveState('費目・予算を更新しました');
     };
   }
 
@@ -648,14 +938,17 @@
 
   function exportCsv(){
     try {
-      var header = ["日付","費目","金額","内容・メモ","ステータス","審査コメント","審査日"];
-      var rows = sorted().map(function(e){
-        return [e.date, e.category, e.amount, e.memo, STATUS[e.status].label, e.reviewComment, e.reviewedAt||""].map(csvField).join(",");
+      var header = ["種別","日付","費目・収入元","金額","内容・メモ","ステータス","審査コメント","審査日"];
+      var expenseRows = sorted().map(function(e){
+        return ["支出", e.date, e.category, -Math.abs(e.amount), e.memo, STATUS[e.status].label, e.reviewComment, e.reviewedAt||""].map(csvField).join(",");
       });
-      var csv = "﻿" + header.join(",") + "\r\n" + rows.join("\r\n");
+      var incomeRows = sortedIncomes().map(function(e){
+        return ["収入", e.date, e.source, e.amount, e.memo, "", "", ""].map(csvField).join(",");
+      });
+      var csv = "﻿" + header.join(",") + "\r\n" + expenseRows.concat(incomeRows).join("\r\n");
       var ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
       downloadBlob(csv, "text/csv;charset=utf-8", "shishutsu-kiroku-" + ts + ".csv");
-      toast("CSVファイルをダウンロードしました");
+      toast("CSVファイルをダウンロードしました（収入・支出）");
     } catch(e){
       toast("CSVの作成に失敗しました");
     }
@@ -671,6 +964,8 @@
         if (!ok) return;
         STATE = data;
         if (!STATE.budgets) STATE.budgets = {};
+        if (!STATE.categories || !STATE.categories.length) STATE.categories = DEFAULT_CATEGORIES.slice();
+        if (!STATE.incomes) STATE.incomes = [];
         ui.selectedId = null;
         renderApp();
         saveState("バックアップから復元しました（" + STATE.expenses.length + " 件）");
@@ -712,6 +1007,13 @@
     if (btnImport) btnImport.onclick = function(){ document.getElementById('restoreFile').click(); };
     var dashMonthSel = document.getElementById('dashMonthSel');
     if (dashMonthSel) dashMonthSel.onchange = function(){ ui.dashMonth = dashMonthSel.value; renderApp(); };
+    var btnNewIncome = document.getElementById('btnNewIncome');
+    if (btnNewIncome) btnNewIncome.onclick = openIncomeModal;
+    var btnSalaryImport = document.getElementById('btnSalaryImport');
+    if (btnSalaryImport) btnSalaryImport.onclick = function(){ document.getElementById('salaryImportFile').click(); };
+    document.querySelectorAll('[data-income-del]').forEach(function(b){
+      b.onclick = function(){ deleteIncome(b.getAttribute('data-income-del')); };
+    });
   }
   document.getElementById('modalOverlay').addEventListener('click', function(ev){
     if (ev.target.id === 'modalOverlay') closeModal();
@@ -722,6 +1024,11 @@
   document.getElementById('restoreFile').addEventListener('change', function(ev){
     var file = ev.target.files[0];
     if (file) importBackup(file);
+    ev.target.value = "";
+  });
+  document.getElementById('salaryImportFile').addEventListener('change', function(ev){
+    var file = ev.target.files[0];
+    if (file) handleSalaryImportFile(file);
     ev.target.value = "";
   });
 
