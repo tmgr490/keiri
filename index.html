@@ -558,11 +558,20 @@
   // 区切りには依存せず、行全体を連結してからラベル文字列をindexOfで探す方式にして読み取り精度を上げている。
   function extractPdfRows(items){
     var rows = [];
+    var TOL = 4.5;
     items.forEach(function(it){
       var x = it.transform[4], y = it.transform[5];
-      var row = rows.filter(function(r){ return Math.abs(r.y - y) < 3; })[0];
-      if (!row) { row = { y: y, items: [] }; rows.push(row); }
-      row.items.push({ x: x, str: it.str });
+      // 一番近い行（±TOL以内）を探す。行のアンカーy座標は追加ごとに移動平均で更新し、
+      // 実機のPDF.jsで文字ごとのy座標にわずかなブレがあっても同じ行としてまとまるようにする
+      var best = null, bestDist = TOL;
+      rows.forEach(function(r){
+        var dist = Math.abs(r.y - y);
+        if (dist < bestDist) { bestDist = dist; best = r; }
+      });
+      if (!best) { best = { y: y, items: [], n: 0 }; rows.push(best); }
+      best.items.push({ x: x, str: it.str });
+      best.n++;
+      best.y = best.y + (y - best.y) / best.n;
     });
     rows.sort(function(a,b){ return b.y - a.y; });
     return rows.map(function(row){
@@ -654,11 +663,18 @@
           .then(function(textContent){
             var rows = extractPdfRows(textContent.items);
             var parsed = parsePayslipRows(rows);
-            if (parsed.amounts['差引支給額'] == null) { reject({file:file, reason:'parse'}); return; }
+            if (parsed.amounts['差引支給額'] == null) {
+              console.warn('[給与明細PDF] 「差引支給額」が見つかりませんでした。抽出結果:', { rows: rows, amounts: parsed.amounts, meta: parsed.meta });
+              reject({file:file, reason:'parse'});
+              return;
+            }
             parsed.fileName = file.name;
             resolve(parsed);
           })
-          .catch(function(){ reject({file:file, reason:'read'}); });
+          .catch(function(err){
+            console.error('[給与明細PDF] 読み取り中にエラーが発生しました:', err);
+            reject({file:file, reason:'read'});
+          });
       };
       reader.onerror = function(){ reject({file:file, reason:'read'}); };
       reader.readAsArrayBuffer(file);
