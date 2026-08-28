@@ -292,7 +292,9 @@
 <input type="file" id="restoreFile" accept="application/json" style="display:none">
 <input type="file" id="salaryImportFile" accept="application/json" style="display:none">
 <input type="file" id="kakeiboImportFile" accept="application/json" style="display:none">
+<input type="file" id="payslipImportFile" accept="application/pdf" style="display:none">
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -385,7 +387,7 @@
       navBtn('review','審査キュー') + navBtn('income','収入') + navBtn('dashboard','予算ダッシュボード') + navBtn('settings','設定') +
       '<div class="spacer"></div>' +
       (ui.view === 'income'
-        ? '<button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
+        ? '<button class="btn-ghost-sm" id="btnPayslipImport">給与明細PDFを読み込む</button><button class="btn-ghost-sm" id="btnSalaryImport">給与トラッカーを読み込む</button><button class="btn-primary" id="btnNewIncome">＋ 新規収入を記録</button>'
         : ui.view === 'dashboard' || ui.view === 'settings'
         ? ''
         : '<button class="btn-primary" id="btnKakeiboImport">家計簿トラッカーを読み込む</button>') +
@@ -547,6 +549,182 @@
       closeModal();
       renderApp();
       saveState('収入を記録しました');
+    };
+  }
+
+  /* ================= 給与明細PDFの読み込み ================= */
+  // PDFの座標情報から行を組み立て（同じ行＝y座標が近いもの）、x座標順に並べてトークン化する
+  function extractPdfRows(items){
+    var rows = [];
+    items.forEach(function(it){
+      var x = it.transform[4], y = it.transform[5];
+      var row = rows.filter(function(r){ return Math.abs(r.y - y) < 3; })[0];
+      if (!row) { row = { y: y, items: [] }; rows.push(row); }
+      row.items.push({ x: x, w: it.width || (it.str.length * 5), str: it.str });
+    });
+    rows.sort(function(a,b){ return b.y - a.y; });
+    return rows.map(function(row){
+      row.items.sort(function(a,b){ return a.x - b.x; });
+      var tokens = [];
+      var prevEndX = null;
+      row.items.forEach(function(it){
+        if (prevEndX !== null && (it.x - prevEndX) > 4) {
+          tokens.push(it.str);
+        } else if (tokens.length) {
+          tokens[tokens.length-1] += it.str;
+        } else {
+          tokens.push(it.str);
+        }
+        prevEndX = it.x + it.w;
+      });
+      return tokens;
+    });
+  }
+
+  var PAYSLIP_NUM_RE = /^[\d,，]+$/;
+  function payslipToNum(s){ return parseInt(String(s).replace(/[,，]/g,''), 10); }
+
+  // まいばすけっと（コンビニ勤怠システム）形式の給与明細レイアウトに合わせたラベル抽出
+  var PAYSLIP_AMOUNT_LABELS = [
+    '出勤日数（日）','欠勤日数（日）','契約時間（時間）','実働時間（分）',
+    '所定内労働時間（分）','所定内支給金額',
+    '（基本給）','（資格給）','（部門給）','（地域給）','（能力給）','（職位給）',
+    '（スキル給）','（調整給Ａ）','（調整給Ｂ）','（調整給Ｃ）','（調整給Ｓ）',
+    '（時間帯加給Ａ）','（時間帯加給Ｂ）','（時間帯加給Ｃ）','（時間帯加給Ｄ）',
+    '（時間帯加給Ｅ）','（時間帯加給Ｆ）','（時間帯加給Ｇ）','（曜日加給）',
+    '通勤手当','支給合計','控除合計','差引支給額','本年累計課税対象額'
+  ];
+  var PAYSLIP_TEXT_LABELS = ['所属','振込口座'];
+
+  function parsePayslipRows(rows){
+    var result = { amounts: {}, meta: {} };
+    rows.forEach(function(tokens){
+      if (tokens[0] && /^\d{4}年\d{1,2}月度$/.test(tokens[0])) {
+        result.meta.yearMonth = tokens[0];
+      }
+      var wsIdx = tokens.indexOf('就業状況');
+      if (wsIdx >= 0 && tokens[wsIdx+1] && tokens[wsIdx+3]) {
+        result.meta.period = tokens[wsIdx+1] + ' - ' + tokens[wsIdx+3];
+      }
+      for (var i = 0; i < tokens.length; i++){
+        var label = tokens[i], next = tokens[i+1];
+        if (PAYSLIP_AMOUNT_LABELS.indexOf(label) >= 0 && next && PAYSLIP_NUM_RE.test(next)) {
+          result.amounts[label] = payslipToNum(next);
+        }
+        if (PAYSLIP_TEXT_LABELS.indexOf(label) >= 0 && next && !PAYSLIP_NUM_RE.test(next)) {
+          if (label === '所属') result.meta.company = next;
+          if (label === '振込口座') result.meta.bankAccount = next;
+        }
+        // ラベルと値の間隔が狭く同一トークンに結合されているケースへの対応
+        PAYSLIP_TEXT_LABELS.forEach(function(tl){
+          if (label.indexOf(tl) === 0 && label.length > tl.length) {
+            var val = label.slice(tl.length);
+            if (tl === '所属' && !result.meta.company) result.meta.company = val;
+            if (tl === '振込口座' && !result.meta.bankAccount) result.meta.bankAccount = val;
+          }
+        });
+      }
+    });
+    return result;
+  }
+
+  var PAYSLIP_ALLOWANCE_KEYS = [
+    '（資格給）','（部門給）','（地域給）','（能力給）','（職位給）','（スキル給）',
+    '（調整給Ａ）','（調整給Ｂ）','（調整給Ｃ）','（調整給Ｓ）',
+    '（時間帯加給Ａ）','（時間帯加給Ｂ）','（時間帯加給Ｃ）','（時間帯加給Ｄ）',
+    '（時間帯加給Ｅ）','（時間帯加給Ｆ）','（時間帯加給Ｇ）','（曜日加給）'
+  ];
+
+  function handlePayslipImportFile(file){
+    if (typeof pdfjsLib === 'undefined') {
+      toast('PDF読み取り機能を読み込めませんでした。インターネット接続を確認してください');
+      return;
+    }
+    if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    var reader = new FileReader();
+    reader.onload = function(){
+      var data = new Uint8Array(reader.result);
+      pdfjsLib.getDocument({ data: data }).promise
+        .then(function(pdf){ return pdf.getPage(1); })
+        .then(function(page){ return page.getTextContent(); })
+        .then(function(textContent){
+          var rows = extractPdfRows(textContent.items);
+          var parsed = parsePayslipRows(rows);
+          if (parsed.amounts['差引支給額'] == null) {
+            toast('給与明細としての読み取りに失敗しました。対応していない形式の可能性があります');
+            return;
+          }
+          openPayslipConfirmModal(parsed);
+        })
+        .catch(function(){
+          toast('PDFの読み取りに失敗しました。ファイルを確認してください');
+        });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function openPayslipConfirmModal(parsed){
+    var a = parsed.amounts, m = parsed.meta;
+    var net = a['差引支給額'];
+    var ymMatch = (m.yearMonth || '').match(/(\d{4})年(\d{1,2})月度/);
+    var defaultDate = ymMatch ? (ymMatch[1] + '-' + (ymMatch[2].length<2?'0'+ymMatch[2]:ymMatch[2]) + '-01') : new Date().toISOString().slice(0,10);
+    var defaultSource = m.company || '給与明細';
+    var allowanceSum = PAYSLIP_ALLOWANCE_KEYS.reduce(function(s,k){ return s + (a[k]||0); }, 0);
+    var workHours = a['実働時間（分）'] != null ? Math.round(a['実働時間（分）']/6)/10 : null;
+
+    var breakdownRows = [
+      ['対象期間', m.period],
+      ['出勤日数', a['出勤日数（日）']!=null ? a['出勤日数（日）']+' 日' : null],
+      ['欠勤日数', a['欠勤日数（日）']!=null ? a['欠勤日数（日）']+' 日' : null],
+      ['実働時間', workHours!=null ? workHours+' 時間' : null],
+      ['基本給', a['（基本給）']!=null ? yen(a['（基本給）']) : null],
+      ['諸手当・加給', allowanceSum>0 ? yen(allowanceSum) : null],
+      ['通勤手当', a['通勤手当']!=null ? yen(a['通勤手当']) : null],
+      ['所定内支給金額', a['所定内支給金額']!=null ? yen(a['所定内支給金額']) : null],
+      ['支給合計', a['支給合計']!=null ? yen(a['支給合計']) : null],
+      ['控除合計', a['控除合計']!=null ? yen(a['控除合計']) : null],
+      ['振込口座', m.bankAccount || null]
+    ].filter(function(r){ return r[1]; });
+
+    var breakdownHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:18px">' +
+      breakdownRows.map(function(r){
+        return '<tr><td style="padding:4px 14px 4px 0;color:var(--ink-soft);white-space:nowrap">' + esc(r[0]) + '</td>' +
+          '<td style="padding:4px 0;font-weight:700">' + esc(String(r[1])) + '</td></tr>';
+      }).join('') + '</table>';
+
+    var body = '<h2>給与明細の読み取り結果</h2>' +
+      '<div class="modal-desc">' + esc(m.yearMonth || '給与明細') + (m.company ? '　' + esc(m.company) : '') + '　（内容を確認・修正してから記録してください）</div>' +
+      breakdownHTML +
+      '<div class="form-2col">' +
+      '<div class="form-row"><label>受取日</label><input type="date" id="ps-date" value="' + defaultDate + '"></div>' +
+      '<div class="form-row"><label>収入元</label><input type="text" id="ps-source" value="' + esc(defaultSource) + '"></div>' +
+      '</div>' +
+      '<div class="form-row"><label>金額（円）・差引支給額</label><input type="number" id="ps-amount" min="0" step="1" value="' + (net||'') + '"></div>' +
+      '<div class="form-row"><label>メモ（任意）</label><textarea id="ps-memo" rows="2">' + esc(m.period ? '給与明細より（' + m.period + '）' : '給与明細より') + '</textarea></div>' +
+      '<div class="modal-actions"><button class="btn-ghost" id="ps-cancel">キャンセル</button><button class="btn-primary" id="ps-submit">収入として記録する</button></div>';
+
+    document.getElementById('modalBody').innerHTML = body;
+    document.getElementById('modalOverlay').classList.add('show');
+    document.getElementById('ps-cancel').onclick = closeModal;
+    document.getElementById('ps-submit').onclick = function(){
+      var source = document.getElementById('ps-source').value.trim();
+      var amount = parseFloat(document.getElementById('ps-amount').value);
+      if (!source) { toast('収入元を入力してください'); return; }
+      if (!amount || amount<=0) { toast('金額を正しく入力してください'); return; }
+      STATE.incomes.push({
+        id: uid(),
+        date: document.getElementById('ps-date').value,
+        source: source,
+        amount: amount,
+        memo: document.getElementById('ps-memo').value.trim(),
+        sourceKey: null,
+        createdAt: Date.now()
+      });
+      closeModal();
+      renderApp();
+      saveState('給与明細から収入を記録しました');
     };
   }
 
@@ -1322,6 +1500,8 @@
     if (btnNewIncome) btnNewIncome.onclick = openIncomeModal;
     var btnSalaryImport = document.getElementById('btnSalaryImport');
     if (btnSalaryImport) btnSalaryImport.onclick = function(){ document.getElementById('salaryImportFile').click(); };
+    var btnPayslipImport = document.getElementById('btnPayslipImport');
+    if (btnPayslipImport) btnPayslipImport.onclick = function(){ document.getElementById('payslipImportFile').click(); };
     var btnKakeiboImport = document.getElementById('btnKakeiboImport');
     if (btnKakeiboImport) btnKakeiboImport.onclick = function(){ document.getElementById('kakeiboImportFile').click(); };
     document.querySelectorAll('[data-income-del]').forEach(function(b){
@@ -1347,6 +1527,11 @@
   document.getElementById('kakeiboImportFile').addEventListener('change', function(ev){
     var file = ev.target.files[0];
     if (file) handleKakeiboImportFile(file);
+    ev.target.value = "";
+  });
+  document.getElementById('payslipImportFile').addEventListener('change', function(ev){
+    var file = ev.target.files[0];
+    if (file) handlePayslipImportFile(file);
     ev.target.value = "";
   });
 
