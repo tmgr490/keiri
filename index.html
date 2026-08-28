@@ -748,12 +748,12 @@
       '</div>';
 
     out += '<div class="panels"><div class="panel"><h3>カテゴリ別 予算消化状況（' + monthLabel(month) + '）</h3>';
-    var anyBudget = false;
-    allCategoryNames().forEach(function(cat){
+    if (!STATE.categories.length) {
+      out += '<div class="empty">登録されている費目がありません。「設定」タブの「予算を設定」から費目を追加しましょう。</div>';
+    }
+    STATE.categories.forEach(function(cat){
       var budget = STATE.budgets[cat] || 0;
       var spent = spentInMonth(cat, month);
-      if (!budget && !spent) return;
-      anyBudget = true;
       var pct = budget ? Math.round(spent/budget*100) : (spent>0?100:0);
       var colorVar = pctColorVar(pct);
       out += '<div class="budget-row"><div class="budget-row-top"><span class="cat">' + esc(cat) + '</span>' +
@@ -761,7 +761,6 @@
         '<div class="budget-track"><div class="budget-fill" style="width:' + Math.min(pct,100) + '%;background:var(--' + colorVar + ')"></div></div>' +
         '<div class="budget-pct">' + (budget ? pct + '%' : '（この費目の予算は未設定です）') + '</div></div>';
     });
-    if (!anyBudget) out += '<div class="empty">この月のデータや予算設定がまだありません。「予算を設定」からカテゴリごとの上限を決めましょう。</div>';
     out += '</div>';
 
     out += '<div class="panel"><h3>ステータス内訳（' + monthLabel(month) + '）</h3>';
