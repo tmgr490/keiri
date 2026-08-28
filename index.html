@@ -134,9 +134,13 @@
   }
   .card:hover{border-color:var(--line-strong);}
   .card.selected{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft);}
+  .card-row{display:flex;align-items:flex-start;gap:8px;}
+  .row-check{margin-top:3px;flex-shrink:0;cursor:pointer;width:16px;height:16px;}
   .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
   .card-name{font-weight:700;font-size:14px;}
   .card-meta{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .bulk-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--brand-soft);border:1px solid var(--brand);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;font-size:13px;}
+  .bulk-bar .spacer{flex:1;}
   .card-amount{font-weight:900;font-size:15.5px;white-space:nowrap;}
   .card-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
   .pill{
@@ -309,7 +313,7 @@
   if (!STATE.categories || !STATE.categories.length) STATE.categories = DEFAULT_CATEGORIES.slice();
   if (!STATE.incomes) STATE.incomes = [];
 
-  var ui = { view: "review", filter: "all", selectedId: null, dashMonth: new Date().toISOString().slice(0,7) };
+  var ui = { view: "review", filter: "all", selectedId: null, dashMonth: new Date().toISOString().slice(0,7), checked: [] };
   var saveTimer = null;
 
   /* ================= helpers ================= */
@@ -407,6 +411,16 @@
       return '<button class="chip' + (ui.filter===ch[0]?' active':'') + '" data-filter="' + ch[0] + '">' + ch[1] + ' <span class="n">' + ch[2] + '</span></button>';
     }).join('') + '</div>';
 
+    var visibleChecked = ui.checked.filter(function(id){ return list.some(function(e){ return e.id===id; }); });
+    if (visibleChecked.length) {
+      out += '<div class="bulk-bar">' + visibleChecked.length + '件選択中' +
+        '<div class="spacer"></div>' +
+        '<button type="button" class="btn-ghost-sm" data-action="bulk-approve">一括承認</button>' +
+        '<button type="button" class="btn-ghost-sm" data-action="bulk-delete">一括削除</button>' +
+        '<button type="button" class="btn-ghost-sm" data-action="bulk-clear">選択解除</button>' +
+        '</div>';
+    }
+
     if (!list.length) {
       out += '<div class="empty">' + (STATE.expenses.length ? 'このステータスの記録はありません。' : 'まだ記録がありません。「＋ 新規支出を記録」から追加してください。') + '</div>';
     } else {
@@ -421,11 +435,16 @@
   function cardHTML(e){
     var st = STATUS[e.status];
     return '<div class="card' + (ui.selectedId===e.id?' selected':'') + '" data-select="' + e.id + '">' +
+      '<div class="card-row">' +
+      '<input type="checkbox" class="row-check" data-check="' + e.id + '"' + (ui.checked.indexOf(e.id)>-1?' checked':'') + '>' +
+      '<div style="flex:1;min-width:0">' +
       '<div class="card-top"><div><div class="card-name">' + esc(e.category) + '</div>' +
       '<div class="card-meta">' + fmtDate(e.date) + (e.memo ? ' ・ ' + esc(e.memo.slice(0,24)) + (e.memo.length>24?'…':'') : '') + '</div></div>' +
       '<div class="card-amount">' + yen(e.amount) + '</div></div>' +
       '<div class="card-bottom"><span class="pill ' + st.cls + '">' + st.label + '</span>' +
-      (e.receipt ? '' : '<span class="flag">領収書なし</span>') + '</div></div>';
+      '<span style="display:flex;align-items:center;gap:6px">' + (e.receipt ? '' : '<span class="flag">領収書なし</span>') +
+      '<button type="button" class="cat-del" data-expense-del="' + e.id + '" title="削除">×</button></span></div>' +
+      '</div></div></div>';
   }
 
   function detailHTML(e){
@@ -463,7 +482,9 @@
       actBtn('approve','act-approve','承認する') +
       actBtn('return','act-return','要注意にする') +
       actBtn('reject','act-reject','却下する（無駄遣い認定）') +
-      '</div></div>';
+      '</div>' +
+      '<div class="act-row"><button type="button" class="cat-del" style="width:100%" data-expense-del="' + e.id + '">この記録を削除</button></div>' +
+      '</div>';
     out += '</div>';
     return out;
   }
@@ -973,6 +994,45 @@
     saveState('ステータスを「' + STATUS[e.status].label + '」に更新しました' + (next ? '。次の未審査項目を表示しています' : ''));
   }
 
+  function deleteExpense(id){
+    var e = byId(id);
+    if (!e) return;
+    if (!window.confirm('この支出の記録を削除しますか？（元に戻せません）')) return;
+    STATE.expenses = STATE.expenses.filter(function(x){ return x.id !== id; });
+    ui.checked = ui.checked.filter(function(x){ return x !== id; });
+    if (ui.selectedId === id) ui.selectedId = null;
+    renderApp();
+    saveState('支出の記録を削除しました');
+  }
+
+  function bulkApprove(){
+    if (!ui.checked.length) return;
+    var ids = ui.checked.slice();
+    if (!window.confirm(ids.length + '件をまとめて承認しますか？')) return;
+    var today = new Date().toISOString().slice(0,10);
+    STATE.expenses.forEach(function(e){
+      if (ids.indexOf(e.id) > -1) {
+        e.status = 'approved';
+        if (!e.reviewComment) e.reviewComment = '一括承認';
+        e.reviewedAt = today;
+      }
+    });
+    ui.checked = [];
+    renderApp();
+    saveState(ids.length + '件を一括承認しました');
+  }
+
+  function bulkDeleteChecked(){
+    if (!ui.checked.length) return;
+    var ids = ui.checked.slice();
+    if (!window.confirm(ids.length + '件をまとめて削除しますか？（元に戻せません）')) return;
+    STATE.expenses = STATE.expenses.filter(function(e){ return ids.indexOf(e.id) === -1; });
+    if (ids.indexOf(ui.selectedId) > -1) ui.selectedId = null;
+    ui.checked = [];
+    renderApp();
+    saveState(ids.length + '件を一括削除しました');
+  }
+
   /* ================= backup: export / import ================= */
   function downloadBlob(content, type, filename){
     var blob = new Blob([content], {type: type});
@@ -1054,7 +1114,26 @@
       b.onclick = function(){ ui.selectedId = b.getAttribute('data-select'); renderApp(); };
     });
     document.querySelectorAll('[data-action]').forEach(function(b){
-      b.onclick = function(){ doAction(b.getAttribute('data-action')); };
+      b.onclick = function(){
+        var action = b.getAttribute('data-action');
+        if (action === 'bulk-approve') { bulkApprove(); return; }
+        if (action === 'bulk-delete') { bulkDeleteChecked(); return; }
+        if (action === 'bulk-clear') { ui.checked = []; renderApp(); return; }
+        doAction(action);
+      };
+    });
+    document.querySelectorAll('[data-check]').forEach(function(cb){
+      cb.onclick = function(ev){ ev.stopPropagation(); };
+      cb.onchange = function(){
+        var id = cb.getAttribute('data-check');
+        var idx = ui.checked.indexOf(id);
+        if (cb.checked) { if (idx === -1) ui.checked.push(id); }
+        else if (idx > -1) { ui.checked.splice(idx, 1); }
+        renderApp();
+      };
+    });
+    document.querySelectorAll('[data-expense-del]').forEach(function(b){
+      b.onclick = function(ev){ ev.stopPropagation(); deleteExpense(b.getAttribute('data-expense-del')); };
     });
     var zoomImg = document.querySelector('[data-zoom]');
     if (zoomImg) zoomImg.onclick = function(){
